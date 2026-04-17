@@ -380,6 +380,84 @@ class SessionState:
 | CFG-4 | Sensitive fields (card_number, cvv, api_key) never logged or printed | P0 |
 | CFG-5 | Config supports multiple items monitored simultaneously | P0 |
 | CFG-6 | Per-retailer check interval overrides at the retailer and item level | P0 |
+| CFG-7 | Drop window calendar: operator defines scheduled drop events with date/time/timezone; bot auto-triggers prewarm when countdown reaches `prewarm_minutes` threshold | P0 |
+| CFG-8 | Config hot-reload: SIGHUP signal triggers config.yaml re-parse and validation without restarting the process | P1 |
+
+### 9.9 Drop Window Calendar
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| DWC-1 | Operator can define drop events: item name, retailer, drop datetime (ISO-8601 with timezone), prewarm minutes before | P0 |
+| DWC-2 | Bot auto-starts prewarm session when countdown reaches the configured `prewarm_minutes` for that drop | P0 |
+| DWC-3 | Drop events stored in `config.yaml` under `drop_windows:` list; validated on startup | P0 |
+| DWC-4 | Multiple drop windows can be active simultaneously (multi-item, multi-retailer) | P0 |
+| DWC-5 | Bot sends `DROP_WINDOW_APPROACHING` webhook at prewarm start and `DROP_WINDOW_OPEN` when drop time arrives | P1 |
+| DWC-6 | Past drop windows automatically pruned from active memory on startup | P0 |
+
+### 9.10 Multi-Account Coordination
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| MAC-1 | Config supports multiple retailer accounts per retailer (e.g., 2 Target accounts, 3 Walmart accounts) | P0 |
+| MAC-2 | Items can be assigned to specific account(s) or spread round-robin across available accounts | P0 |
+| MAC-3 | One-purchase-per-account rule enforced: same item cannot be purchased by two accounts in the same drop window | P0 |
+| MAC-4 | Account-level session pre-warming runs in parallel across all configured accounts | P0 |
+| MAC-5 | `pokeDrop status` shows per-account health: session valid, cookies fresh, last prewarm time | P1 |
+| MAC-6 | Account credential storage: each account stored as a separate config block under `accounts:`; credentials loaded at startup | P0 |
+
+### 9.11 Session Health Dashboard (TUI)
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| TUI-1 | Rich terminal UI (`Rich` + `Textual`) renders in the operator's terminal during active monitoring | P0 |
+| TUI-2 | Dashboard shows: active items, retailer status, session health indicators, last event timestamp, live webhook log | P0 |
+| TUI-3 | Color-coded status: green (healthy), yellow (degraded), red (session expired/error) | P0 |
+| TUI-4 | Captures keyboard input: `q` to quit, `s` to pause monitoring, `r` to resume, `h` for help overlay | P1 |
+| TUI-5 | TUI runs locally; not a web UI; no separate server required | P0 |
+| TUI-6 | When CAPTCHA is pending manual solve, TUI highlights the affected account/retailer in yellow and shows countdown timer | P0 |
+
+### 9.12 Social Listening
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| SCL-1 | Optional toggle: when `social_listening.enabled = true`, bot monitors Twitter/X for drop-related keywords | P1 |
+| SCL-2 | Sources configurable: Twitter/X (API v2), Discord (channel IDs), Email (IMAP) — each independently enableable | P1 |
+| SCL-3 | Keywords defined per monitored item in config (e.g., ["Charizard Elite Trainer Box", "Pokemon restock", "ETB restock"]) | P1 |
+| SCL-4 | Social signal triggers prewarm for matching item/retailer; does not auto-checkout — requires operator confirmation for first use | P1 |
+| SCL-5 | Discord: listen to specific channel IDs, not entire server; message content matched against item keywords | P1 |
+| SCL-6 | Twitter/X: stream filtered tweets matching keywords; auto-parse tweet for URLs and item names | P1 |
+| SCL-7 | All social listening is read-only; bot does not post, reply, or interact with social platforms | P0 |
+| SCL-8 | `social_listening.mock = true` for testing without live API credentials | P2 |
+
+### 9.13 Drop Countdown Timer
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| DCT-1 | Operator can manually enter a drop time for a known event: `pokeDrop set-drop <item> --at "2026-04-20T10:00:00-08:00"` | P0 |
+| DCT-2 | Bot computes time until drop; when `time_until_drop <= prewarm_minutes`, auto-starts session pre-warming | P0 |
+| DCT-3 | Countdown displayed in TUI dashboard (Section 9.11) and fired via `DROP_WINDOW_APPROACHING` webhook | P1 |
+| DCT-4 | If drop time is within 5 minutes and session is not pre-warmed, fire urgent `PREWARM_URGENT` webhook | P0 |
+| DCT-5 | Supports one-shot drops (single event) and recurring drops (cron-like schedule, v2.1+) | P0 |
+
+### 9.14 Operational Reliability
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| OP-1 | **Crash Recovery**: on abnormal exit (signal, unhandled exception), persist current checkout state to `state.json` — item, retailer, stage reached, timestamps | P0 |
+| OP-2 | On restart, load `state.json`; if order was already placed, skip that item; if checkout was in progress, resume from last known good stage | P0 |
+| OP-3 | **Health Check Endpoint**: `GET /health` returns HTTP 200 + JSON `{status, active_items, session_health, last_event_at, uptime_seconds}` | P0 |
+| OP-4 | Health check endpoint does not require authentication; intended for operator's own monitoring (port monitoring, uptime robot) | P0 |
+| OP-5 | **Config Hot-Reload**: SIGHUP signal triggers full config re-parse and validation; if valid, applies changes; if invalid, logs error and continues with previous config | P1 |
+
+### 9.15 Adapter Plugin Architecture
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| ADP-1 | Retailer adapters (Target, Walmart, BestBuy) are loaded via a plugin registry at startup — no hardcoded retailer list | P0 |
+| ADP-2 | Plugin discovery: adapters in `src/monitor/retailers/` are auto-loaded if they inherit from `RetailerAdapter` base class | P0 |
+| ADP-3 | Adding a new retailer (e.g., GameStop) requires: create `src/monitor/retailers/gamestop.py` implementing `RetailerAdapter`, add entry to `config.yaml` — zero changes to core monitoring loop | P0 |
+| ADP-4 | Adapter plugin can declare dependencies (e.g., specific CAPTCHA handler) in its class metadata | P2 |
+| ADP-5 | `pokeDrop list-retailers` CLI command enumerates all loaded adapter plugins and their enabled/disabled status | P1 |
 
 ---
 
@@ -672,6 +750,12 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 | Config Validation | Basic | Basic | Full schema validation + env var overrides |
 | Multi-account | No | Yes (basic) | Yes + one-purchase-per-account enforcement |
 | Web Dashboard | No | Future | Future (v2.1) |
+| Drop Window Calendar | No | No | Yes — scheduled drops with auto-prewarm |
+| Session Health Dashboard (TUI) | No | No | Yes — Rich/Textual terminal UI |
+| Social Listening | No | No | Yes — Twitter/X, Discord, Email (optional) |
+| Drop Countdown Timer | No | No | Yes — manual entry with prewarm trigger |
+| Config Hot-Reload (SIGHUP) | No | No | Yes |
+| Adapter Plugin Architecture | No | No | Yes — load retailers as plugins |
 | Success Rate (est.) | 60–70% | 80–85% | 85–90% |
 
 ---
