@@ -66,7 +66,7 @@ PokeDrop Bot automates the entire purchase flow — from stock detection to chec
 | Language | Python | 3.11+ | Async ecosystem, Playwright bindings |
 | HTTP Client | httpx | ≥0.27 | Async, HTTP/2, connection pooling |
 | Browser Automation | Playwright | ≥1.40 | Headless, anti-detect, cross-browser |
-| CAPTCHA Solving | 2Captcha API | — | reCAPTCHA, hCaptcha, Cloudflare Turnstile |
+| CAPTCHA Solving | 2Captcha API + Manual Mode | — | 2Captcha for auto-solve; operator-paused manual mode; smart routing (Turnstile→auto, reCAPTCHA/hCaptcha→manual) |
 | Config | YAML + PyYAML | ≥6.0 | Human-readable, no compilation |
 | CLI | argparse | stdlib | Zero dependencies |
 | Notifications | aiohttp | ≥3.9 | Async webhook delivery |
@@ -250,6 +250,10 @@ class SessionState:
 | `CHECKOUT_FAILED` | Checkout rejected | — | `item`, `retailer`, `error`, `attempt`, `stage` |
 | `CAPTCHA_REQUIRED` | CAPTCHA challenge detected | `item`, `retailer`, `captcha_type` | — |
 | `CAPTCHA_SOLVED` | CAPTCHA solved | `item`, `retailer`, `solve_time_ms` | — |
+| `CAPTCHA_PENDING_MANUAL` | Bot paused for manual solve; operator required | `item`, `retailer`, `captcha_type`, `pause_url` | — |
+| `CAPTCHA_MANUAL_RESOLVED` | Operator solved CAPTCHA; bot resuming | `item`, `retailer`, `solve_time_ms` | — |
+| `CAPTCHA_MANUAL_TIMEOUT` | Operator did not solve within timeout; bot skipped or retried | — | `item`, `retailer`, `captcha_type`, `timeout_seconds` |
+| `CAPTCHA_BUDGET_EXCEEDED` | Daily 2Captcha budget cap hit; auto-solves paused | — | `item`, `retailer`, `daily_spent_usd`, `budget_cap_usd` |
 | `QUEUE_DETECTED` | Retailer queue/waiting room entered | `item`, `retailer`, `queue_url` | — |
 | `QUEUE_CLEARED` | Queue position released | `item`, `retailer` | — |
 | `SESSION_EXPIRED` | Auth/session invalidated | — | `item`, `retailer`, `reason` |
@@ -312,6 +316,25 @@ class SessionState:
 | CAP-5 | Log CAPTCHA solve time in milliseconds | P0 |
 | CAP-6 | Handle CAPTCHA solve failure (alert via webhook, skip or retry) | P1 |
 | CAP-7 | Budget tracking: log cumulative daily CAPTCHA spend | P2 |
+| CAP-8 | **Manual CAPTCHA Mode**: when enabled, bot pauses on CAPTCHA challenge and fires `CAPTCHA_PENDING_MANUAL` webhook; waits for operator to solve in browser; resumes on completion or timeout | P0 |
+| CAP-9 | **Smart CAPTCHA Routing** (when `captcha.mode = smart`): Turnstile challenges auto-solved via 2Captcha (low cost, high pass rate); reCAPTCHA/hCaptcha routed to manual mode or auto-solve with budget cap | P0 |
+
+#### 9.4.1 CAPTCHA Modes
+
+| Mode | Behavior | Use When |
+|------|----------|----------|
+| `auto` | All CAPTCHA types sent to 2Captcha; operator pays per solve | Operator wants fully autonomous; budget available |
+| `manual` | Bot pauses on any CAPTCHA; fires `CAPTCHA_PENDING_MANUAL` to Discord/Telegram; waits up to `captcha.manual_alert_timeout_seconds`; skips or retries on timeout | Operator wants full control and is monitoring the bot during drops |
+| `smart` (default) | Turnstile → auto-solve (2Captcha); reCAPTCHA/hCaptcha → manual mode with operator alert | Best of both worlds: fast Turnstile solves, human accuracy on hard challenges |
+
+#### 9.4.2 CAPTCHA Budget Tracker
+
+| Field | Config Key | Default | Description |
+|-------|-----------|---------|-------------|
+| Daily budget cap | `captcha.daily_budget_usd` | $5.00 | Halts 2Captcha auto-solves when daily spend exceeds this; manual mode remains available |
+| Per-retailer cap | `captcha.retailer_budget_usd` | None | Optional per-retailer override (e.g., $1.00 for Target, $3.00 for Best Buy) |
+| Solve time alert threshold | `captcha.solve_time_alert_ms` | 60000ms | Fire webhook alert if single solve exceeds this (2Captcha overloaded or blocked) |
+| Daily cumulative log | `captcha.log_daily_total` | true | Log total spend to console on shutdown |
 
 ### 9.5 Anti-Detection / Evasion
 
@@ -442,7 +465,8 @@ class SessionState:
 | Target.com | Retailer | Account credentials | 99.9% |
 | Walmart.com | Retailer | Account credentials | 99.9% |
 | BestBuy.com | Retailer | Account credentials | 99.9% |
-| 2Captcha.com | CAPTCHA solving | API key | 95% solve rate |
+| 2Captcha.com | CAPTCHA auto-solve (Turnstile, reCAPTCHA, hCaptcha) | API key | 95% solve rate |
+| Manual CAPTCHA Mode | Operator-intervened solves; bot pauses and alerts | N/A | Best effort (operator-dependent) |
 | Discord webhook | Notifications | Webhook URL | Best effort |
 | Telegram Bot API | Notifications | Bot token + chat ID | Best effort |
 | Residential proxy pool | Anti-detection (v2.0) | IP:port:user:pass | 99% uptime |
@@ -636,7 +660,8 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 | Stock Monitoring | HTTP GET + Playwright | Playwright (all) | Playwright (all) + session reuse |
 | Check Interval | 500ms fixed | Per-retailer config | 100–500ms per retailer + jitter |
 | Evasion | UA rotation only | UA + fingerprint + proxy | UA + fingerprint + proxy + respect robots.txt |
-| CAPTCHA Solving | No | 2Captcha (reCAPTCHA only) | 2Captcha (reCAPTCHA + hCaptcha + Turnstile) |
+| CAPTCHA Solving | No | 2Captcha (reCAPTCHA only) | 2Captcha + Manual Mode + Smart Routing |
+| CAPTCHA Budget Tracker | No | No | Yes — daily cap, per-retailer cap, solve time alerts |
 | Notifications | Discord | Discord + Telegram | Discord + Telegram + retry queue |
 | Session Pre-warm | No | Basic | Full cookie/token caching with expiry |
 | Checkout Retries | No | 1 retry | Configurable N retries (default 2) |
