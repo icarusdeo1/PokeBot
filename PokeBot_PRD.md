@@ -1,9 +1,10 @@
 # PokeDrop Bot — Auto-Checkout System
 
-**Version:** 3.0  
-**Date:** 2026-04-16  
+**Version:** 4.0  
+**Date:** 2026-04-17  
 **Status:** Production-Ready Draft  
-**Owner:** J (bullmoonfinance)
+**Owner:** J (bullmoonfinance)  
+**Interface:** Web Dashboard (localhost-first)
 
 ---
 
@@ -14,8 +15,9 @@
 | **Project Name** | PokeDrop Bot |
 | **Type** | High-speed auto-checkout automation tool |
 | **Core Functionality** | Monitor retailer pages for Pokemon merchandise restocks and automatically complete purchase within milliseconds of stock availability |
-| **Target Users** | Resellers and collectors who need to secure limited Pokemon items before they sell out |
-| **Execution Environment** | Single local process; components may run on separate machines in future iterations |
+| **Target Users** | Non-technical resellers and collectors who need to secure limited Pokemon items before they sell out; operator interacts via a browser-based dashboard, no CLI knowledge required |
+| **Execution Environment** | Headless daemon running in the background on the operator's machine; web dashboard accessible at `http://localhost:8080` via any browser on the same machine |
+| **Architecture** | Two-process model: (1) Bot daemon — handles all monitoring, cart, checkout logic; (2) Dashboard server — serves the operator interface and exposes a local REST API consumed by the dashboard UI |
 
 ---
 
@@ -23,7 +25,7 @@
 
 Pokemon merchandise drops (special edition cards, plush toys, collectibles) sell out in seconds. Manual browsing and checkout is too slow. Competitive buyers use multiple devices and bot scripts to gain an unfair advantage.
 
-PokeDrop Bot automates the entire purchase flow — from stock detection to checkout confirmation — at machine speed, restoring parity against automated competitors.
+PokeDrop Bot automates the entire purchase flow — from stock detection to checkout confirmation — at machine speed, restoring parity against automated competitors. The operator interacts with the bot entirely through a web dashboard — no terminal, no CLI, no technical knowledge required.
 
 ---
 
@@ -34,7 +36,9 @@ PokeDrop Bot automates the entire purchase flow — from stock detection to chec
 | Stock detection latency | Time from item going live to bot detecting in-stock | < 1 second (Target/Walmart), < 500ms (Best Buy) |
 | Checkout completion | Time from stock detection to order confirmation | < 10 seconds (Target), < 15 seconds (Walmart), < 5 seconds (Best Buy) |
 | Success rate | Orders placed / checkout attempts initiated | ≥ 85% on pre-warmed sessions |
-| Operational transparency | Webhook events fired for all lifecycle transitions | 100% of defined events |
+| Operational transparency | All lifecycle events visible in real-time in the dashboard event log | 100% of defined events |
+| Dashboard load time | Time from browser request to page rendered | < 2 seconds (localhost) |
+| Dashboard real-time latency | Time from event firing in daemon to appearing in dashboard | < 500ms via SSE |
 
 ---
 
@@ -44,6 +48,7 @@ PokeDrop Bot automates the entire purchase flow — from stock detection to chec
 - This tool does **not** hack, exploit, or penetration-test retailer systems.
 - This tool does **not** guarantee purchase. Retailer-side failures (payment declines, session invalidation, anti-bot blocks) are outside bot control.
 - This tool is **not** a scalping engine. Users are responsible for complying with retailer Terms of Service and applicable law.
+- This tool does **not** require the operator to use a terminal or command line. All interaction is through the web dashboard.
 
 ---
 
@@ -51,11 +56,11 @@ PokeDrop Bot automates the entire purchase flow — from stock detection to chec
 
 | Role | Permissions |
 |------|-------------|
-| **Operator** | Full control: start/stop monitoring, configure items and retailers, view logs, trigger dry-run |
-| **Viewer** | Read-only status and logs; no configuration changes |
+| **Operator** | Full control: start/stop monitoring, configure items and retailers, view logs, trigger dry-run — via dashboard login |
+| **Viewer** | Read-only dashboard access: can view status, session health, event history, and configuration summary — but cannot start/stop monitoring or change any settings |
 | **Future: API User** | Remote control via REST API (v2.1+) — not in scope for v1/v2 |
 
-**Access Control:** Operator access is enforced by OS-level file permissions on `config.yaml`. Do not share `config.yaml`; share only `config.example.yaml`.
+**Access Control:** Dashboard requires PIN/password authentication. Operator PIN stored hashed (argon2 or bcrypt) in `auth.db` (SQLite). No endpoint is accessible without a valid session cookie. Viewer sessions are read-only — no start, stop, dry-run, or config change operations permitted.
 
 ---
 
@@ -63,15 +68,25 @@ PokeDrop Bot automates the entire purchase flow — from stock detection to chec
 
 | Component | Choice | Version | Rationale |
 |-----------|--------|---------|-----------|
-| Language | Python | 3.11+ | Async ecosystem, Playwright bindings |
-| HTTP Client | httpx | ≥0.27 | Async, HTTP/2, connection pooling |
-| Browser Automation | Playwright | ≥1.40 | Headless, anti-detect, cross-browser |
-| CAPTCHA Solving | 2Captcha API + Manual Mode | — | 2Captcha for auto-solve; operator-paused manual mode; smart routing (Turnstile→auto, reCAPTCHA/hCaptcha→manual) |
-| Config | YAML + PyYAML | ≥6.0 | Human-readable, no compilation |
-| CLI | argparse | stdlib | Zero dependencies |
-| Notifications | aiohttp | ≥3.9 | Async webhook delivery |
-| Testing | pytest | ≥8.0 | Unit and integration coverage |
-| Type Checking | mypy | ≥1.8 | Optional strict mode |
+| **Bot daemon** | Python | 3.11+ | Async ecosystem, Playwright bindings |
+| **HTTP Client** | httpx | ≥0.27 | Async, HTTP/2, connection pooling |
+| **Browser Automation** | Playwright | ≥1.40 | Headless, anti-detect, cross-browser |
+| **CAPTCHA Solving** | 2Captcha API + Manual Mode | — | 2Captcha for auto-solve; operator-paused manual mode; smart routing (Turnstile→auto, reCAPTCHA/hCaptcha→manual) |
+| **Config** | YAML + PyYAML | ≥6.0 | Human-readable, operator-editable via dashboard form |
+| **Web Framework** | FastAPI | ≥0.110 | Async, fast, serves dashboard + API on localhost |
+| **ASGI Server** | Uvicorn | ≥0.27 | Runs the FastAPI dashboard server |
+| **Frontend** | Vanilla HTML + CSS + JS | — | Single-page dashboard; no build step, no heavy SPA framework |
+| **Local Database** | SQLite | built-in | Stores bot state (`state.db`) and auth sessions (`auth.db`); WAL mode |
+| **Password Hashing** | argon2 or bcrypt | ≥0.3 | Dashboard PIN/password hashing |
+| **Real-time Updates** | Server-Sent Events (SSE) | built-in (FastAPI) | Pushes live events from daemon to dashboard without polling |
+| **Notifications** | aiohttp | ≥3.9 | Async webhook delivery to Discord/Telegram |
+| **Testing** | pytest + Playwright | ≥8.0 | Unit, integration, and API route tests |
+| **Type Checking** | mypy | ≥1.8 | Optional strict mode |
+
+**What is NOT used (removed from previous version):**
+- `argparse` — no CLI commands
+- `Rich` + `Textual` — no TUI; replaced by web dashboard
+- Any web server requiring external hosting (dashboard is localhost-only)
 
 ---
 
@@ -81,56 +96,89 @@ PokeDrop Bot automates the entire purchase flow — from stock detection to chec
 
 ```
 poke-drop-bot/
-├── config.yaml                  # Runtime config (not committed)
+├── config.yaml                  # Retailer/item configuration (operator edits via dashboard)
 ├── config.example.yaml          # Template with all keys, no secrets
+├── auth.db                      # SQLite: operator credentials, sessions (not committed)
+├── state.db                     # SQLite: bot state, event history (not committed)
 ├── requirements.txt             # Pinned dependencies
 ├── pyproject.toml               # Package metadata
 ├── README.md                    # Setup and usage guide
 ├── src/
 │   ├── __init__.py
-│   ├── main.py                  # CLI entry point
-│   ├── config.py                # Config loading + validation
-│   ├── logger.py                # Structured logging setup
-│   ├── monitor/
+│   ├── daemon.py                # Bot daemon entry point (runs silently in background)
+│   ├── dashboard/
 │   │   ├── __init__.py
-│   │   ├── stock_monitor.py     # Core monitoring state machine
-│   │   └── retailers/
+│   │   ├── server.py            # FastAPI app — serves dashboard + exposes local API
+│   │   ├── auth.py              # Login, session management, PIN/password hashing
+│   │   ├── routes/
+│   │   │   ├── __init__.py
+│   │   │   ├── status.py        # GET /api/status — bot state from state.db
+│   │   │   ├── config.py        # GET/PATCH /api/config — retailer/item config
+│   │   │   ├── events.py        # GET /api/events/stream — SSE real-time event stream
+│   │   │   ├── monitor.py       # POST /api/monitor/start, /stop
+│   │   │   ├── dryrun.py        # POST /api/dryrun — triggers dry-run checkout
+│   │   │   └── health.py        # GET /health — daemon health check
+│   │   └── templates/
+│   │       └── index.html       # Dashboard frontend (single-page HTML/CSS/JS)
+│   ├── bot/
+│   │   ├── __init__.py
+│   │   ├── config.py            # Config loading + validation (from YAML)
+│   │   ├── logger.py            # Structured logging → file + SSE stream
+│   │   ├── monitor/
+│   │   │   ├── __init__.py
+│   │   │   ├── stock_monitor.py
+│   │   │   └── retailers/
+│   │   │       ├── __init__.py
+│   │   │       ├── base.py
+│   │   │       ├── target.py
+│   │   │       ├── walmart.py
+│   │   │       └── bestbuy.py
+│   │   ├── checkout/
+│   │   │   ├── __init__.py
+│   │   │   ├── cart_manager.py
+│   │   │   ├── checkout_flow.py
+│   │   │   ├── payment.py
+│   │   │   ├── shipping.py
+│   │   │   └── captcha.py
+│   │   ├── evasion/
+│   │   │   ├── __init__.py
+│   │   │   ├── user_agents.py
+│   │   │   ├── fingerprint.py
+│   │   │   ├── jitter.py
+│   │   │   └── proxy.py
+│   │   ├── notifications/
+│   │   │   ├── __init__.py
+│   │   │   ├── webhook.py
+│   │   │   ├── discord.py
+│   │   │   └── telegram.py
+│   │   └── session/
 │   │       ├── __init__.py
-│   │       ├── base.py          # Abstract RetailerAdapter
-│   │       ├── target.py       # Target.com implementation
-│   │       ├── walmart.py      # Walmart.com implementation
-│   │       └── bestbuy.py      # BestBuy.com implementation
-│   ├── checkout/
-│   │   ├── __init__.py
-│   │   ├── cart_manager.py     # Cart operations (add, verify, clear)
-│   │   ├── checkout_flow.py    # Full checkout pipeline
-│   │   ├── payment.py           # Payment form handling
-│   │   ├── shipping.py         # Shipping form handling
-│   │   └── captcha.py          # 2Captcha integration
-│   ├── evasion/
-│   │   ├── __init__.py
-│   │   ├── user_agents.py      # UA pool and rotation
-│   │   ├── fingerprint.py      # Browser fingerprint randomization
-│   │   ├── jitter.py           # Timing randomization utilities
-│   │   └── proxy.py            # Proxy rotation (v2.0+)
-│   ├── notifications/
-│   │   ├── __init__.py
-│   │   ├── webhook.py          # Generic webhook sender
-│   │   ├── discord.py          # Discord-specific adapter
-│   │   └── telegram.py         # Telegram-specific adapter
-│   └── session/
+│   │       └── prewarmer.py
+│   └── shared/
 │       ├── __init__.py
-│       └── prewarmer.py        # Session pre-warming (cookie/cache)
+│       ├── db.py                # SQLite state.db + auth.db helpers (WAL mode)
+│       └── models.py            # Shared dataclasses
 └── tests/
-    ├── conftest.py             # Pytest fixtures
-    ├── test_monitor.py
-    ├── test_checkout.py
-    ├── test_evasion.py
-    ├── test_config.py
-    └── test_notifications.py
+    ├── conftest.py
+    ├── test_bot/                # Bot daemon unit tests
+    ├── test_dashboard/          # API route tests (FastAPI TestClient)
+    └── test_auth.py             # Auth: login success/fail, session expiry, role enforcement
 ```
 
+**Two-process model:**
+- `daemon.py` — runs as a background daemon; handles all bot logic (monitoring, cart, checkout, evasion); communicates with dashboard via SQLite state.db and SSE
+- `dashboard/server.py` — FastAPI app; serves the dashboard frontend at `http://localhost:8080`; exposes `/api/*` endpoints consumed by the dashboard UI; reads/writes state.db to command the daemon
+
+**Daemon ↔ Dashboard communication:**
+- Bot writes state to `state.db`: active items, session health per retailer, last event timestamp, daemon uptime
+- Bot emits real-time events via SSE stream at `GET /api/events/stream`
+- Dashboard frontend consumes SSE and displays live event log
+- Dashboard sends commands (start/stop/dry-run) by writing to `state.db` command queue table
+- Daemon polls command queue or uses a file lock signal (no direct inter-process function calls)
+
 ### 7.2 Core State Machine
+
+*(Unchanged — bot internal logic identical to v3.0)*
 
 ```
 STANDBY ──[stock detected]──> STOCK_FOUND ──[cart added]──> CART_READY
@@ -145,27 +193,28 @@ STANDBY ──[stock detected]──> STOCK_FOUND ──[cart added]──> CART
 ### 7.3 Data Flow
 
 ```
-Config Load ──> RetailerAdapter.init() ──> PreWarming ──> StockMonitor loop
-                                                                │
-                                              ┌─────────────────┴────────────────┐
-                                              │                                   │
-                                        [in-stock]                        [still out-of-stock]
-                                              │                                   │
-                                        CartManager.add_item()            [continue loop]
-                                              │
-                                        [cart verified]
-                                              │
-                                        CheckoutFlow.run()
-                                              │
-                              ┌───────────────┼───────────────┐
-                              │               │               │
-                        [success]      [captcha req]    [failure]
-                              │               │
-                        Order confirmed   CaptchaSolver.solve()
-                              │               │
-                              ▼               ▼
-                        Webhook event    Retry checkout
+Operator opens browser ──> http://localhost:8080 ──> Dashboard login
+                                                          │
+                                           ┌──────────────┴──────────────┐
+                                           │                              │
+                                     [Operator actions]           [real-time state]
+                                           │                              │
+                                  dashboard/server.py          state.db (SQLite)
+                                           │                              │
+                                           │                    daemon.py (bot)
+                                           │                              │
+                                           │              ┌───────────────┼────────────────┐
+                                           │         Stock Monitor    Checkout Flow    Session Manager
+                                           │                              │                    │
+                                           │                        Webhook events ──> Discord/Telegram
+                                           │                              │
+                                     Dashboard UI               Event written to state.db
+                                     (live event log)                  │
+                                     (session health)                 │
+                                     (CAPTCHA panel)           SSE ──> Dashboard
 ```
+
+**Operator never interacts directly with the daemon.** All actions go through the dashboard which reads from / writes to the shared SQLite database.
 
 ---
 
@@ -358,17 +407,27 @@ class SessionState:
 | NOT-5 | Queue webhook events if network is temporarily unavailable | P1 |
 | NOT-6 | Fire all defined lifecycle events (Table in Section 8.2) | P0 |
 
-### 9.7 CLI Commands
+### 9.7 Dashboard Interface
 
-| Command | Description |
-|---------|-------------|
-| `pokeDrop start [--item <name>] [--retailer <name>]` | Start monitoring (all items if none specified) |
-| `pokeDrop stop` | Stop monitoring gracefully |
-| `pokeDrop status` | Show current monitoring state, active items, session health |
-| `pokeDrop test-config` | Validate config.yaml and report errors |
-| `pokeDrop dry-run [--item <name>] [--retailer <name>]` | Run checkout flow without placing order |
-| `pokeDrop add-item <config.yaml snippet>` | Add item to active monitoring (future, v2.1) |
-| `pokeDrop prewarm [--retailer <name>]` | Pre-warm session without starting checkout |
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| DSH-1 | Dashboard accessible at `http://localhost:8080` with PIN/password login screen on first launch | P0 |
+| DSH-2 | Main status view shows: daemon online/offline indicator, active items list, per-retailer session health (green/yellow/red), last event timestamp | P0 |
+| DSH-3 | Real-time event log streams live to dashboard via SSE — shows timestamp, event type, item, retailer for each event | P0 |
+| DSH-4 | "Start Monitoring" and "Stop Monitoring" buttons; both require confirmation dialog to prevent accidental clicks | P0 |
+| DSH-5 | Item selector: dropdown or card grid to select which item(s) and retailer(s) to monitor before starting | P0 |
+| DSH-6 | "Run Dry Run" button triggers full checkout flow without placing order; output streamed to a terminal panel in the dashboard | P0 |
+| DSH-7 | Settings page: all `config.yaml` fields (retailer accounts, shipping, payment, CAPTCHA mode, daily budget) editable via form fields with inline validation — no raw YAML editing required | P0 |
+| DSH-8 | "Validate Config" button runs full config validation and shows pass/fail with specific error messages | P0 |
+| DSH-9 | CAPTCHA panel: shows current mode (auto/manual/smart), daily spend vs. budget cap, per-retailer spend breakdown, solve time alerts | P0 |
+| DSH-10 | Drop Window Calendar: list of upcoming drop events with datetime and timezone; add/edit/delete drop windows; auto-prewarm status shown per drop | P0 |
+| DSH-11 | Multi-Account panel: all configured accounts per retailer shown with session health, last prewarm time, enabled/disabled toggle | P0 |
+| DSH-12 | Event history page: searchable log of past events (last 500) with filters by event type, retailer, item | P1 |
+| DSH-13 | Operator logout button ends session and returns to PIN/password login | P0 |
+| DSH-14 | Dashboard is responsive and works on tablet-sized screens (1024px minimum) | P1 |
+| DSH-15 | Viewer role (read-only): can see status, session health, event history, and configuration summary — but start/stop/dry-run buttons are hidden and no settings changes permitted | P0 |
+| DSH-16 | "Restart Daemon" button visible in dashboard header; confirms before restarting; daemon auto-restarts via supervisor/systemd on crash | P0 |
+| DSH-17 | Setup wizard on first launch: operator sets PIN/password, fills in first retailer account, shipping info, payment info — step by step with inline help text | P0 |
 
 ### 9.8 Configuration Management
 
@@ -381,7 +440,10 @@ class SessionState:
 | CFG-5 | Config supports multiple items monitored simultaneously | P0 |
 | CFG-6 | Per-retailer check interval overrides at the retailer and item level | P0 |
 | CFG-7 | Drop window calendar: operator defines scheduled drop events with date/time/timezone; bot auto-triggers prewarm when countdown reaches `prewarm_minutes` threshold | P0 |
-| CFG-8 | Config hot-reload: SIGHUP signal triggers config.yaml re-parse and validation without restarting the process | P1 |
+| CFG-8 | Config hot-reload: `POST /api/config/reload` reloads config.yaml from disk, validates, and applies — if invalid, logs error and continues with previous config | P1 |
+| CFG-9 | Dashboard Settings page provides form-based config editing for all `config.yaml` fields — shipping, payment, retailers, items, CAPTCHA mode, daily budget — rendered as form fields with inline validation | P0 |
+| CFG-10 | Config changes from dashboard are validated before saving; invalid changes show inline field errors and are not saved to disk | P0 |
+| CFG-11 | Sensitive fields (card_number, cvv, API keys) masked in dashboard UI (`****1234`) and in `state.db` | P0 |
 
 ### 9.9 Drop Window Calendar
 
@@ -402,21 +464,10 @@ class SessionState:
 | MAC-2 | Items can be assigned to specific account(s) or spread round-robin across available accounts | P0 |
 | MAC-3 | One-purchase-per-account rule enforced: same item cannot be purchased by two accounts in the same drop window | P0 |
 | MAC-4 | Account-level session pre-warming runs in parallel across all configured accounts | P0 |
-| MAC-5 | `pokeDrop status` shows per-account health: session valid, cookies fresh, last prewarm time | P1 |
+| MAC-5 | Dashboard Multi-Account panel shows per-account health: session valid, cookies fresh, last prewarm time, enabled/disabled status | P1 |
 | MAC-6 | Account credential storage: each account stored as a separate config block under `accounts:`; credentials loaded at startup | P0 |
 
-### 9.11 Session Health Dashboard (TUI)
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| TUI-1 | Rich terminal UI (`Rich` + `Textual`) renders in the operator's terminal during active monitoring | P0 |
-| TUI-2 | Dashboard shows: active items, retailer status, session health indicators, last event timestamp, live webhook log | P0 |
-| TUI-3 | Color-coded status: green (healthy), yellow (degraded), red (session expired/error) | P0 |
-| TUI-4 | Captures keyboard input: `q` to quit, `s` to pause monitoring, `r` to resume, `h` for help overlay | P1 |
-| TUI-5 | TUI runs locally; not a web UI; no separate server required | P0 |
-| TUI-6 | When CAPTCHA is pending manual solve, TUI highlights the affected account/retailer in yellow and shows countdown timer | P0 |
-
-### 9.12 Social Listening
+### 9.11 Social Listening
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
@@ -433,9 +484,9 @@ class SessionState:
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| DCT-1 | Operator can manually enter a drop time for a known event: `pokeDrop set-drop <item> --at "2026-04-20T10:00:00-08:00"` | P0 |
+| DCT-1 | Operator can manually enter a drop time for a known event via dashboard "Schedule Drop" form — date/time picker with timezone | P0 |
 | DCT-2 | Bot computes time until drop; when `time_until_drop <= prewarm_minutes`, auto-starts session pre-warming | P0 |
-| DCT-3 | Countdown displayed in TUI dashboard (Section 9.11) and fired via `DROP_WINDOW_APPROACHING` webhook | P1 |
+| DCT-3 | Countdown displayed in dashboard (Section 9.10) and fired via `DROP_WINDOW_APPROACHING` webhook | P1 |
 | DCT-4 | If drop time is within 5 minutes and session is not pre-warmed, fire urgent `PREWARM_URGENT` webhook | P0 |
 | DCT-5 | Supports one-shot drops (single event) and recurring drops (cron-like schedule, v2.1+) | P0 |
 
@@ -447,7 +498,8 @@ class SessionState:
 | OP-2 | On restart, load `state.json`; if order was already placed, skip that item; if checkout was in progress, resume from last known good stage | P0 |
 | OP-3 | **Health Check Endpoint**: `GET /health` returns HTTP 200 + JSON `{status, active_items, session_health, last_event_at, uptime_seconds}` | P0 |
 | OP-4 | Health check endpoint does not require authentication; intended for operator's own monitoring (port monitoring, uptime robot) | P0 |
-| OP-5 | **Config Hot-Reload**: SIGHUP signal triggers full config re-parse and validation; if valid, applies changes; if invalid, logs error and continues with previous config | P1 |
+| OP-5 | **Config Hot-Reload**: `POST /api/config/reload` triggers full config re-parse and validation; if valid, applies changes; if invalid, logs error and continues with previous config | P1 |
+| OP-6 | Dashboard shows daemon uptime and last restart time; if daemon is not running, dashboard shows clear "Daemon Offline — restart required" banner with a prominent "Restart Daemon" button | P0 |
 
 ### 9.15 Adapter Plugin Architecture
 
@@ -457,7 +509,7 @@ class SessionState:
 | ADP-2 | Plugin discovery: adapters in `src/monitor/retailers/` are auto-loaded if they inherit from `RetailerAdapter` base class | P0 |
 | ADP-3 | Adding a new retailer (e.g., GameStop) requires: create `src/monitor/retailers/gamestop.py` implementing `RetailerAdapter`, add entry to `config.yaml` — zero changes to core monitoring loop | P0 |
 | ADP-4 | Adapter plugin can declare dependencies (e.g., specific CAPTCHA handler) in its class metadata | P2 |
-| ADP-5 | `pokeDrop list-retailers` CLI command enumerates all loaded adapter plugins and their enabled/disabled status | P1 |
+| ADP-5 | Dashboard "About" page lists all loaded retailer adapter plugins with their name, version, and enabled/disabled status | P1 |
 
 ---
 
@@ -482,17 +534,23 @@ class SessionState:
 | Checkout success rate (pre-warmed) | ≥ 85% |
 | Webhook delivery reliability | ≥ 99% after retries |
 | Crash recovery | Restart from last known good state; do not re-purchase already-ordered items |
+| Bot daemon auto-restart | Supervisor/systemd restarts daemon within 10s of crash; dashboard shows "Daemon Offline" banner during downtime |
 
 ### 10.3 Security
 
 | Requirement | Priority |
 |-------------|----------|
-| Payment credentials stored in config.yaml with OS-level file permissions (chmod 600) | P0 |
-| Card CVV never stored post-checkout | P0 |
-| API keys for 2Captcha loaded from environment variables in production | P1 |
+| Dashboard PIN/password hashed (argon2 or bcrypt) before storage — never stored in plaintext | P0 |
+| All dashboard API endpoints require valid session cookie — no endpoint is publicly accessible | P0 |
+| Sensitive config fields (card_number, cvv, CVV) masked in dashboard UI (`****1234`) and never written to logs | P0 |
+| `state.db` and `auth.db` stored in bot's working directory with OS-level file permissions | P0 |
+| Session cookies: httpOnly, sameSite=strict, expire after 8 hours of inactivity | P1 |
 | All webhook URLs validated as HTTPS | P0 |
 | No external network calls except to configured retailers, 2Captcha, and notification endpoints | P0 |
 | Browser sandboxed; no access to local filesystem beyond config/logs | P0 |
+| Dashboard does not serve files from the filesystem beyond its own assets (no path traversal) | P0 |
+| Card CVV never stored post-checkout | P0 |
+| API keys for 2Captcha loaded from environment variables in production | P1 |
 
 ### 10.4 Scalability
 
@@ -544,7 +602,11 @@ class SessionState:
 | Walmart.com | Retailer | Account credentials | 99.9% |
 | BestBuy.com | Retailer | Account credentials | 99.9% |
 | 2Captcha.com | CAPTCHA auto-solve (Turnstile, reCAPTCHA, hCaptcha) | API key | 95% solve rate |
-| Manual CAPTCHA Mode | Operator-intervened solves; bot pauses and alerts | N/A | Best effort (operator-dependent) |
+| FastAPI | Web framework — serves dashboard + API on localhost | — | Python |
+| Uvicorn | ASGI server — runs the FastAPI dashboard server | — | Ships with FastAPI |
+| SQLite | Local state (`state.db`) + auth (`auth.db`); WAL mode for concurrency | — | Built into Python |
+| argon2 or bcrypt | Password hashing for dashboard PIN/password | — | Python library |
+| SSE | Real-time event push from daemon to dashboard | — | Built into FastAPI |
 | Discord webhook | Notifications | Webhook URL | Best effort |
 | Telegram Bot API | Notifications | Bot token + chat ID | Best effort |
 | Residential proxy pool | Anti-detection (v2.0) | IP:port:user:pass | 99% uptime |
@@ -563,7 +625,7 @@ Deliverables:
 - [ ] `CartManager` for Target cart API
 - [ ] `CheckoutFlow` for Target checkout
 - [ ] `DiscordWebhook` notifications
-- [ ] CLI: start, stop, status, test-config, dry-run
+- [ ] Web Dashboard: login, main status view (daemon status, active items, session health), start/stop buttons with confirmation, real-time event log via SSE, dry-run output panel, config validation
 - [ ] Config schema with Target retailer
 - [ ] UA rotation (pool of 50)
 - [ ] Jitter on check intervals (±20%)
@@ -600,9 +662,9 @@ Deliverables:
 - [ ] Session pre-warming with scheduled warm-up before drop window
 - [ ] Structured logging (JSON) with log rotation
 - [ ] Health check endpoint (`/health`) for deployment monitoring
-- [ ] Config hot-reload via signal (SIGHUP)
+- [ ] Config hot-reload via `POST /api/config/reload` (dashboard "Reload Config" button)
 - [ ] Crash recovery (persist state to disk)
-- [ ] Operational dashboard (local web UI, v2.1 deferred)
+- [ ] Operational dashboard: replaced by primary web dashboard (Section 9.7)
 
 **Exit Criteria:** 85%+ success rate on dry-run across all three retailers; all webhook events fire; no hardcoded values.
 
@@ -627,7 +689,7 @@ Deliverables:
 
 | # | Criterion | Test Method |
 |---|-----------|-------------|
-| 1 | Bot starts and parses `config.yaml` without errors | `pokeDrop test-config` exits 0 |
+| 1 | Bot daemon starts and `config.yaml` is valid | Dashboard "Validate Config" shows green checkmark |
 | 2 | Dry-run completes checkout on Target without placing order | Manual test with dry-run flag |
 | 3 | All 12 webhook events fire in correct sequence | Webhook endpoint captures event sequence |
 | 4 | Stock detection responds within 1s of item going live | Time from simulated IS state to STOCK_DETECTED event |
@@ -647,22 +709,57 @@ Deliverables:
 | Environment | Configuration Source | Secrets Source |
 |-------------|---------------------|----------------|
 | Development | `config.yaml` in repo root | Direct in config.yaml |
-| Production | `config.yaml` (managed by operator) | Environment variables |
+| Production | `config.yaml` (managed by operator via dashboard) | Environment variables |
 
-**Deployment steps:**
-1. Clone repo
-2. `pip install -r requirements.txt`
-3. Install Playwright browsers: `playwright install --with-deps chromium`
-4. Copy `config.example.yaml` → `config.yaml`, fill in credentials
-5. `pokeDrop test-config` → verify clean
-6. `pokeDrop prewarm --retailer target` → pre-warm 10 min before drop
-7. `pokeDrop start` or `pokeDrop dry-run`
+### Operator Setup (Non-Technical, No Terminal Required)
 
-**File permissions (production):**
+1. **Download and run** the installer/executable for your OS
+2. **First launch**: browser automatically opens to `http://localhost:8080/setup`
+3. **Setup Wizard**: step-by-step flow:
+   - Set dashboard PIN/password (minimum 6 digits)
+   - Add first retailer account (Target, Walmart, or Best Buy)
+   - Enter shipping address
+   - Enter payment method (card number, expiry, CVV — stored in `config.yaml`)
+   - Configure CAPTCHA mode (auto / manual / smart — see Section 9.4.1)
+4. **Validate Config**: click "Test Config" → green checkmark confirms all credentials valid
+5. **Start Monitoring**: select item(s) and retailer(s) → click "Start Monitoring"
+6. **Dashboard**: real-time status visible at `http://localhost:8080` — green = healthy, yellow = degraded, red = error
+
+**Daemon runs in background**: no terminal window needs to stay open. A shortcut/app alias is created in the Start Menu / Applications folder.
+
+### Daemon Management
+
+| Scenario | How it works |
+|----------|-------------|
+| Operator opens dashboard | Browser → `http://localhost:8080` → login → dashboard UI |
+| Operator closes browser | Bot keeps running in background |
+| Bot crashes | Supervisor/systemd auto-restarts within 10s; dashboard shows "Daemon Offline" banner |
+| Machine restarts | Supervisor auto-starts daemon on boot (user login not required) |
+| Need to restart daemon | "Restart Daemon" button in dashboard header |
+
+### File Permissions
+
 ```bash
 chmod 600 config.yaml   # Owner read/write only
-chmod 600 poke_drop.log # Rotate regularly
+chmod 600 auth.db       # SQLite auth DB — contains hashed PIN, no plaintext
+chmod 600 state.db      # SQLite state DB
+chmod 600 poke_drop.log # Rotate regularly (10MB max, 5 backups)
 ```
+
+### Process Supervisor (Required for Production)
+
+The daemon must run under a supervisor to auto-restart on crash:
+
+**macOS / Linux (launchd / systemd):**
+```plist
+<!-- com.pokedrop.bot.plist (macOS) -->
+<Label>com.pokedrop.bot</Label>
+<ProgramArguments>/usr/bin/python3 /path/to/src/daemon.py</ProgramArguments>
+<RunAtLoad/>
+<KeepAlive/>
+```
+
+**Windows:** Use a simple wrapper or Windows Task Scheduler with "Run on startup" and restart on failure.
 
 ---
 
@@ -670,12 +767,15 @@ chmod 600 poke_drop.log # Rotate regularly
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Log format | Structured JSON to stdout; plain text to file |
+| Log format | Structured JSON to `logs/pokedrop.log`; plain text to rotating file |
 | Log levels | DEBUG (form field values), INFO (lifecycle events), WARNING (retriable errors), ERROR (fatal) |
 | Log rotation | Python `logging.handlers.RotatingFileHandler`, 10MB max, 5 backups |
 | Key log events | MONITOR_START, STOCK_DETECTED, CART_ADDED, CHECKOUT_START, CHECKOUT_SUCCESS, CHECKOUT_FAILED, ERROR |
-| Health check | `GET /health` returns `200 OK` + `{status: "ok", active_items: N}` when running |
-| Metrics (v2.1) | Prometheus-compatible `/metrics` endpoint (checkouts_attempted, checkouts_succeeded, captcha_solve_time_ms) |
+| Bot state DB | All state written to `state.db` (SQLite WAL mode) — dashboard reads from same DB |
+| Event history | Last 500 events stored in `state.db events` table; accessible via dashboard event history page |
+| Real-time dashboard | SSE stream at `GET /api/events/stream` pushes live events to dashboard UI |
+| Health check | `GET /health` returns `{status, active_items, session_health, last_event_at, uptime_seconds}` |
+| Daemon offline detection | Dashboard polls `GET /health` every 5s; if unreachable, shows "Daemon Offline" banner |
 
 ---
 
@@ -696,12 +796,14 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 
 | Topic | Guidance |
 |-------|----------|
-| **Bot does not complete purchase** | Check logs for CHECKOUT_FAILED stage; common causes: payment decline, session expired, CAPTCHA timeout |
-| **Blocked by retailer** | Switch to dry-run; change IP via proxy rotation; reduce check frequency |
-| **CAPTCHA cost too high** | Reduce pre-warm time; use 1-Click checkout when available |
-| **Config not loading** | Run `pokeDrop test-config` for validation errors |
-| **Monitoring not starting** | Verify retailer adapter name matches exactly in config |
+| **Bot does not complete purchase** | Check dashboard event log for CHECKOUT_FAILED stage; common causes: payment decline, session expired, CAPTCHA timeout |
+| **Blocked by retailer** | Run dry-run from dashboard to verify; change IP via proxy rotation; reduce check frequency |
+| **CAPTCHA cost too high** | Open CAPTCHA panel in dashboard; reduce daily budget cap or switch to manual mode |
+| **Config not loading** | Click "Validate Config" in dashboard Settings — shows specific field-level errors |
+| **Monitoring not starting** | Check daemon status in dashboard header (green/red); if offline, click "Restart Daemon" |
 | **Session pre-warming** | Must run at least 10 minutes before drop window; pre-warmed sessions expire after 2 hours |
+| **Dashboard shows "Daemon Offline"** | Click "Restart Daemon" button in header; if problem persists, check `logs/pokedrop.log` for errors |
+| **Forgot PIN/password** | Edit `auth.db` manually (see README recovery instructions) or delete `auth.db` to reset — dashboard will run setup wizard again |
 
 ---
 
@@ -717,6 +819,10 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 | ToS violation / account ban | Medium | High | Use separate account for bot; do not use on primary account |
 | Disk fills with logs | Low | Low | Log rotation (10MB × 5 backups) |
 | Checkout race with other bots | High | Medium | Pre-warm sessions, fastest checkout path, 1-Click when available |
+| Web server crash (daemon keeps running) | Low | Low | Daemon runs separately; dashboard is client-only; restart button restores access |
+| Dashboard accessible to other users on same machine | Low (localhost only) | High | PIN required on every session; no external interface binding |
+| SQLite DB corruption | Low | Medium | WAL mode; bot continues if DB is read-only; operator can restore from backup |
+| Operator loses PIN/password | Medium | High | Recovery: delete `auth.db`, restart — setup wizard runs again (see README) |
 
 ---
 
@@ -730,9 +836,9 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 
 ---
 
-## 23. v1 vs v2 vs v3 Comparison
+## 23. v1 vs v2 vs v4 Comparison
 
-| Feature | v1.0 | v2.0 | v3.0 (this doc) |
+| Feature | v1.0 | v2.0 | v4.0 (this doc) |
 |---------|------|------|-----------------|
 | Retailers | Target (1) | Target + Walmart + Best Buy | All three + extensible adapter |
 | Stock Monitoring | HTTP GET + Playwright | Playwright (all) | Playwright (all) + session reuse |
@@ -749,13 +855,21 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 | Crash Recovery | No | No | Persist state, no duplicate orders |
 | Config Validation | Basic | Basic | Full schema validation + env var overrides |
 | Multi-account | No | Yes (basic) | Yes + one-purchase-per-account enforcement |
-| Web Dashboard | No | Future | Future (v2.1) |
+| Primary Interface | CLI (terminal commands) | CLI | **Web Dashboard (localhost)** |
+| TUI | Yes — Rich/Textual terminal UI | Yes | **Removed — replaced by web dashboard** |
+| Web Framework | No | No | **FastAPI + Uvicorn (localhost)** |
+| Local DB | No | No | **SQLite (state.db + auth.db)** |
+| Auth Mechanism | OS file permissions (chmod) | OS file permissions | **App-level PIN/password + session cookie** |
+| Config Hot-Reload | SIGHUP signal | SIGHUP signal | **POST /api/config/reload (dashboard button)** |
+| Deployment | Terminal commands | Terminal commands | **Installer + browser (no terminal)** |
 | Drop Window Calendar | No | No | Yes — scheduled drops with auto-prewarm |
-| Session Health Dashboard (TUI) | No | No | Yes — Rich/Textual terminal UI |
+| Session Health Dashboard (TUI) | No | No | **Removed — replaced by web dashboard** |
 | Social Listening | No | No | Yes — Twitter/X, Discord, Email (optional) |
 | Drop Countdown Timer | No | No | Yes — manual entry with prewarm trigger |
-| Config Hot-Reload (SIGHUP) | No | No | Yes |
 | Adapter Plugin Architecture | No | No | Yes — load retailers as plugins |
+| CAPTCHA Budget Tracker | No | No | Yes — daily cap, per-retailer cap, solve time alerts |
+| CAPTCHA Manual Mode + Smart Routing | No | No | Yes — operator can pause and solve manually |
+| Web Dashboard | No | Future | **Primary interface (v4.0)** |
 | Success Rate (est.) | 60–70% | 80–85% | 85–90% |
 
 ---
@@ -772,6 +886,13 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 | **Stealth Mode** | Playwright configuration that hides automation signals |
 | **Dry-run** | Full checkout flow without placing order; validates config and flow |
 | **Adapter** | Retailer-specific implementation of the `RetailerAdapter` base class |
+| **Daemon** | Background process running the bot (src/daemon.py); handles all monitoring, cart, checkout, evasion logic — has no UI of its own |
+| **Dashboard** | Web-based operator interface served by dashboard/server.py at `http://localhost:8080`; all bot interaction goes through here — operator never interacts with daemon directly |
+| **SSE (Server-Sent Events)** | Technology that pushes real-time events from daemon to dashboard without polling; daemon writes event to state.db and pushes via SSE stream |
+| **Localhost-only** | Service bound to 127.0.0.1 — accessible only from the same machine; not exposed to the internet or local network |
+| **WAL mode** | SQLite Write-Ahead Logging mode — allows concurrent read access while writing; required for dashboard daemon to access state.db simultaneously |
+| **Auth DB** | SQLite database (`auth.db`) storing hashed operator PIN/password and session cookies |
+| **State DB** | SQLite database (`state.db`) storing bot state, event history, command queue (WAL mode enabled) |
 | **Jitter** | Random variance added to timing to appear more human-like |
 
 ---
