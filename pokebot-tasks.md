@@ -578,13 +578,20 @@
 
 ---
 
-**MON-T02**
+**MON-T02** ✅ DONE
 - **Title:** Implement SKU-based stock detection
 - **Feature Area:** `bot/monitor/`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** ADAPTER-T02
 - **Description:** Implement SKU-based detection: exact match against known SKUs from config. Support both SKU-based (MON-3) and keyword-based (MON-4) detection per item. PRD Section 9.1 (MON-3, MON-4).
+- **Acceptance Criteria:**
+  - [x] SKU-based stock detection via `stock_check_with_retry()` in `_monitor_item_loop()`
+  - [x] Keyword-based detection via `check_stock_by_keyword()` in `_monitor_keyword_loop()`
+  - [x] OOS→IS transition detection (MON-2)
+  - [x] Per-item/retailer/sku monitoring tasks created on `start()`
+  - [x] Tests: 25 passed
+  - [x] mypy: no issues
 
 ---
 
