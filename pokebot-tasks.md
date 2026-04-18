@@ -375,13 +375,30 @@
 
 ---
 
-**SESSION-T01**
+**SESSION-T01** ✅ DONE
 - **Title:** Implement session pre-warmer
 - **Feature Area:** `bot/session/prewarmer.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** ADAPTER-T02
 - **Description:** Implement session pre-warming: load retailer page, authenticate with credentials, cache all cookies and auth tokens, verify session validity. Pre-warm N minutes before drop window. Cache session with expiry (2 hours). PRD Sections 9.1 (MON-7), 9.10 (MAC-4).
+- **Acceptance Criteria:**
+  - [x] `SessionPrewarmer` class with `start()`, `stop()`, `prewarm_now()` and `prewarm_all_accounts()`
+  - [x] `PrewarmResult` dataclass with retailer, account_name, success, prewarmed_at, error, cookies_count
+  - [x] `PrewarmSession` dataclass with cookies, auth_token, cart_token, prewarmed_at, expires_at, is_expired
+  - [x] `SessionCache` with set/get/get_valid/get_all_valid/invalidate/clear operations
+  - [x] Scheduler loop checking drop windows every 30 seconds
+  - [x] Pre-warm triggered when drop window is within prewarm_minutes
+  - [x] 2-hour TTL for pre-warmed sessions (PREWARM_SESSION_TTL_HOURS = 2)
+  - [x] `get_valid_session()` returns valid non-expired session or None
+  - [x] `invalidate_session()` removes session from cache
+  - [x] `get_status()` returns session status for all retailers/accounts
+  - [x] `_parse_datetime()` handles ISO-8601 with Z suffix, offset, and naive (treated as UTC)
+  - [x] `get_adapter_for_retailer()` via registry to create retailer adapter instances
+  - [x] Async login → session state capture → cache storage flow
+  - [x] Graceful error handling with PrewarmResult error field
+  - [x] Tests: 43 passed
+  - [x] mypy: no issues
 
 ---
 
