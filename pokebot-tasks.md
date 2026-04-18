@@ -1750,13 +1750,20 @@
 
 ---
 
-**EVASION-T07**
+**EVASION-T07** ✅ DONE
 - **Title:** Block non-essential JS (ads, analytics, tracking)
 - **Feature Area:** `bot/evasion/`
 - **Priority:** P1
 - **Complexity:** S
 - **Dependencies:** ADAPTER-T02
 - **Description:** Configure Playwright to block non-essential resources: ads, analytics, tracking pixels. Only load essential page assets. PRD Section 9.5 (EV-6).
+- **Completed:** 2026-04-18 (commit 72655ee)
+- **Implementation:**
+  - `src/bot/evasion/resource_blocker.py`: New module with `apply_resource_blocking()` function that registers a Playwright route handler (`_block_route`) matching all URLs against `_AD_TRACKING_DOMAINS` set of 40+ ad/analytics/tracking domains. Routes to blocked domains are aborted; all others continue.
+  - Integrated in `TargetAdapter._setup_browser()`, `WalmartAdapter._setup_browser()`, and `BestBuyAdapter._setup_browser()` via `await apply_resource_blocking(self._context)`
+  - Blocked domains include: doubleclick.net, google-analytics.com, facebook.net, criteo.com, hotjar.com, mixpanel.com, segment.io, optimizely.com, and 30+ more
+  - Tests: 11 passed (`test_resource_blocker.py`)
+  - mypy: clean on all changed files
 
 ---
 
