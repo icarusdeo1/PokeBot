@@ -556,13 +556,25 @@
 
 ---
 
-**MON-T01**
+**MON-T01** ✅ DONE
 - **Title:** Implement StockMonitor orchestration loop
 - **Feature Area:** `bot/monitor/stock_monitor.py`
 - **Priority:** P0
 - **Complexity:** L
 - **Dependencies:** ADAPTER-T02, ADAPTER-T03, ADAPTER-T04, CHECKOUT-T02, SESSION-T01, SESSION-T02
 - **Description:** Implement `StockMonitor`: main orchestration loop. Load all configured items and retailers. Start monitoring per item. Detect OOS→IS transitions (MON-2). Route to checkout flow on stock detection. Handle graceful shutdown (MON-11): stop monitoring loop, close browser, persist state. PRD Sections 9.1, state machine Section 7.2.
+- **Acceptance Criteria:**
+  - [x] StockMonitor class with async start()/stop() and per-item monitoring loops
+  - [x] OOS→IS transition detection (MON-2) triggering checkout routing
+  - [x] Route to CheckoutFlow on stock detection
+  - [x] Graceful shutdown with SIGTERM/SIGINT handlers (MON-11)
+  - [x] Per-item/retailer/sku monitoring tasks with MonitorState tracking
+  - [x] Session pre-warming integration on start
+  - [x] State persistence to state.json for crash recovery (OP-1, OP-2)
+  - [x] Jittered check intervals per retailer config (MON-6)
+  - [x] get_status() API for dashboard integration
+  - [x] Tests: 21 passed
+  - [x] mypy: no issues
 
 ---
 
@@ -1512,7 +1524,7 @@ PHASE1-ALL → TEST-T01, TEST-T02, TEST-T03, TEST-T04, TEST-T05, TEST-T06
 | NOTIF-T01 | Discord webhook | notifications/discord.py | S |
 | NOTIF-T02 | Telegram webhook | notifications/telegram.py | S |
 | NOTIF-T03 | Webhook base class | notifications/webhook.py | S |
-| MON-T01 | StockMonitor loop | monitor/stock_monitor.py | L |
+| MON-T01 ✅ | StockMonitor loop | monitor/stock_monitor.py | L |
 | MON-T02 | SKU-based detection | monitor/ | S |
 | DAEMON-T01 | daemon.py entry point | daemon.py | M |
 | AUTH-T01 | PIN/password auth | dashboard/auth.py | M |
