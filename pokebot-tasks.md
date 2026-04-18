@@ -592,13 +592,25 @@
 
 ---
 
-**DAEMON-T01**
+**DAEMON-T01** ✅ DONE
 - **Title:** Implement daemon.py entry point
 - **Feature Area:** `daemon.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** MON-T01, SHARED-T02, SHARED-T04, SHARED-T05, SHARED-T06
 - **Description:** Create `daemon.py`: background entry point that runs silently (no TUI). Load config, initialize logging, connect to state.db, start stock monitor loop. Register signal handlers for graceful shutdown (SIGTERM, SIGINT). Run under supervisor-compatible init. PRD Section 7.
+- **Acceptance Criteria:**
+  - [x] daemon.py at project root with argparse (--config flag)
+  - [x] Config loading and validation
+  - [x] Logger initialization (logs to logs/poke_drop.log)
+  - [x] DatabaseManager initialization and state.db setup
+  - [x] SessionPrewarmer initialization
+  - [x] CheckoutFlow with CartManager initialization
+  - [x] StockMonitor initialization and start()
+  - [x] SIGTERM/SIGINT graceful shutdown handlers
+  - [x] CrashRecovery context manager wrapping main loop
+  - [x] Tests: 6 passed
+  - [x] mypy: no issues
 
 ---
 
@@ -1526,7 +1538,7 @@ PHASE1-ALL → TEST-T01, TEST-T02, TEST-T03, TEST-T04, TEST-T05, TEST-T06
 | NOTIF-T03 | Webhook base class | notifications/webhook.py | S |
 | MON-T01 ✅ | StockMonitor loop | monitor/stock_monitor.py | L |
 | MON-T02 | SKU-based detection | monitor/ | S |
-| DAEMON-T01 | daemon.py entry point | daemon.py | M |
+| DAEMON-T01 ✅ | daemon.py entry point | daemon.py | M |
 | AUTH-T01 | PIN/password auth | dashboard/auth.py | M |
 | AUTH-T02 | Session middleware | dashboard/auth.py | S |
 | ROUTE-T01 | /api/status | routes/status.py | S |
