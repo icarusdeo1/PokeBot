@@ -1261,13 +1261,20 @@
 
 ---
 
-**PHASE3-T04**
+**PHASE3-T04** ✅ DONE
 - **Title:** Implement DROP_WINDOW webhook events
 - **Feature Area:** `bot/notifications/webhook.py`
 - **Priority:** P1
 - **Complexity:** S
 - **Dependencies:** PHASE3-T02, NOTIF-T01
 - **Description:** Fire `DROP_WINDOW_APPROACHING` webhook at prewarm start and `DROP_WINDOW_OPEN` when drop time arrives. PRD Section 9.9 (DWC-5).
+- **Acceptance Criteria:**
+  - [x] DROP_WINDOW_APPROACHING fires via webhook callback when prewarm is triggered (within prewarm_minutes window)
+  - [x] DROP_WINDOW_OPEN fires via webhook callback when drop time arrives
+  - [x] DROP_WINDOW_OPEN fires only once per window (window disabled after firing to prevent 30s re-trigger)
+  - [x] Webhook callback is wired via StockMonitor.webhook_callback, created by daemon._build_webhook_callback() from Discord/Telegram config
+  - [x] Tests: 16 drop window scheduler tests + 3 daemon tests pass
+  - [x] mypy: no issues
 
 ---
 
