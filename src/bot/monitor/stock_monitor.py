@@ -51,6 +51,7 @@ class MonitorState:
     item_name: str = ""
     retailer_name: str = ""
     sku: str = ""
+    keyword: str = ""  # Populated when keyword-based detection found stock
     order_id: str = ""
     error: str = ""
     checkout_attempt: int = 0
@@ -168,6 +169,30 @@ class StockMonitor:
                         sku=sku,
                     )
 
+                # MON-4: Keyword-based detection tasks (MON-4)
+                keywords = item_def.get("keywords", [])
+                for keyword in keywords:
+                    kw_task_key = f"{item_name}:{retailer_name}:kw:{keyword}"
+                    kw_state = MonitorState(
+                        stage=MonitorStage.STANDBY,
+                        item_name=item_name,
+                        retailer_name=retailer_name,
+                        keyword=keyword,
+                    )
+                    self._item_states[kw_task_key] = kw_state
+
+                    kw_task = asyncio.create_task(
+                        self._monitor_keyword_loop(item_name, retailer_name, keyword)
+                    )
+                    self._monitor_tasks[kw_task_key] = kw_task
+
+                    self.logger.info(
+                        "MONITOR_KEYWORD_TASK_STARTED",
+                        item=item_name,
+                        retailer=retailer_name,
+                        keyword=keyword,
+                    )
+
         # Wait for shutdown signal
         await self._shutdown_event.wait()
 
@@ -270,6 +295,7 @@ class StockMonitor:
                 "item_name": state.item_name,
                 "retailer": state.retailer_name,
                 "sku": state.sku,
+                "keyword": state.keyword,
                 "order_id": state.order_id,
                 "error": state.error,
                 "started_at": (
@@ -405,6 +431,116 @@ class StockMonitor:
                     error=str(exc),
                 )
                 # Brief pause before retry
+                await asyncio.sleep(1.0)
+
+    async def _monitor_keyword_loop(
+        self,
+        item_name: str,
+        retailer_name: str,
+        keyword: str,
+    ) -> None:
+        """Keyword-based monitoring loop for a single item/retailer/keyword.
+
+        Uses check_stock_by_keyword to detect in-stock items matching
+        the configured keyword. Triggers checkout when stock is found.
+
+        Per PRD Section 9.1 (MON-4).
+        """
+        task_key = f"{item_name}:{retailer_name}:kw:{keyword}"
+        state = self._item_states.get(task_key)
+        if state is None:
+            return
+
+        state.stage = MonitorStage.MONITORING
+        state.started_at = datetime.now(timezone.utc)
+
+        self.logger.info(
+            "MONITOR_KEYWORD_LOOP_STARTED",
+            item=item_name,
+            retailer=retailer_name,
+            keyword=keyword,
+        )
+
+        # Get adapter for this retailer
+        adapter = await self._get_adapter_for_retailer(retailer_name)
+        if adapter is None:
+            self.logger.error(
+                "MONITOR_ADAPTER_NOT_FOUND",
+                item=item_name,
+                retailer=retailer_name,
+            )
+            return
+
+        # Get check interval from retailer config
+        check_interval_ms = self._get_check_interval(retailer_name)
+
+        last_check_time: datetime | None = None
+
+        while self._running:
+            try:
+                current_task = asyncio.current_task()
+                if current_task is None or current_task.cancelled():
+                    break
+
+                # Keyword-based stock check
+                stock_status = await adapter.check_stock_by_keyword(keyword)
+                last_check_time = datetime.now(timezone.utc)
+
+                if stock_status.in_stock:
+                    self.logger.info(
+                        "STOCK_DETECTED_KEYWORD",
+                        item=item_name,
+                        retailer=retailer_name,
+                        keyword=keyword,
+                        sku=stock_status.sku,
+                        url=stock_status.url or "",
+                        price=stock_status.price or "",
+                    )
+
+                    state.stage = MonitorStage.STOCK_FOUND
+                    state.stock_found_at = last_check_time
+                    state.sku = stock_status.sku
+
+                    # Route to checkout with the discovered SKU
+                    await self._route_to_checkout(
+                        adapter=adapter,
+                        item_name=item_name,
+                        retailer_name=retailer_name,
+                        sku=stock_status.sku,
+                        state=state,
+                    )
+
+                    if state.stage == MonitorStage.CHECKOUT_COMPLETE:
+                        self.logger.info(
+                            "MONITOR_KEYWORD_ITEM_COMPLETE",
+                            item=item_name,
+                            retailer=retailer_name,
+                            keyword=keyword,
+                            order_id=state.order_id,
+                        )
+                        return
+
+                # Apply jitter to check interval (MON-6)
+                import random
+
+                jitter_pct = getattr(self.config, "evasion", {}).get(
+                    "jitter_percent", 20
+                )
+                jitter_factor = 1.0 + random.uniform(-jitter_pct / 100, jitter_pct / 100)
+                wait_seconds = (check_interval_ms / 1000) * jitter_factor
+
+                await asyncio.sleep(wait_seconds)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:  # noqa: BLE001
+                self.logger.error(
+                    "MONITOR_KEYWORD_LOOP_ERROR",
+                    item=item_name,
+                    retailer=retailer_name,
+                    keyword=keyword,
+                    error=str(exc),
+                )
                 await asyncio.sleep(1.0)
 
     async def _check_stock_with_adapter(

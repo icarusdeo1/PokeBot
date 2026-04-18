@@ -49,6 +49,8 @@ class ConcreteRetailerAdapter(RetailerAdapter):
     async def check_queue(self) -> bool:
         return False
 
+    async def check_stock_by_keyword(self, keyword: str) -> StockStatus:
+        return StockStatus(in_stock=False, sku="", url="")
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 

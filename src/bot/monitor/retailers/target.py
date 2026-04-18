@@ -409,6 +409,146 @@ class TargetAdapter(RetailerAdapter):
         except Exception:  # noqa: BLE001
             return None
 
+    async def check_stock_by_keyword(self, keyword: str) -> StockStatus:
+        """Check for in-stock items matching a keyword at Target.com.
+
+        Navigates to the Target search page for the keyword, collects product
+        links from search results, and checks each product page for stock.
+        Returns the first in-stock match.
+
+        Args:
+            keyword: Search keyword (e.g., "Charizard Elite Trainer Box").
+
+        Returns:
+            StockStatus with in_stock=True and matched item details, or
+            in_stock=False if no matching in-stock item found.
+        """
+        try:
+            await self._ensure_browser()
+            if self._page is None:
+                return StockStatus(in_stock=False, sku="")
+
+            search_url = (
+                f"https://www.target.com/s?searchTerm="
+                f"{keyword.replace(' ', '+')}"
+            )
+
+            self._log("DEBUG", "KEYWORD_SEARCH_START", keyword=keyword, url=search_url)
+
+            await self._page.goto(
+                search_url,
+                wait_until="domcontentloaded",
+                timeout=20000,
+            )
+
+            # Wait for search results to load
+            try:
+                await self._page.wait_for_selector(
+                    '[data-test="product-list"] a[href*="/p/"]',
+                    timeout=15000,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+            # Collect product links from search results
+            product_links: list[str] = []
+            try:
+                link_els = await self._page.query_selector_all(
+                    'a[href*="/p/"][href*="A-"]'
+                )
+                for el in link_els[:10]:  # Check top 10 results
+                    href = await el.get_attribute("href")
+                    if href and "/p/" in href:
+                        full_url = (
+                            href
+                            if href.startswith("http")
+                            else f"https://www.target.com{href}"
+                        )
+                        if full_url not in product_links:
+                            product_links.append(full_url)
+            except Exception:  # noqa: BLE001:
+                pass
+
+            self._log(
+                "DEBUG",
+                "KEYWORD_SEARCH_RESULTS",
+                keyword=keyword,
+                product_count=len(product_links),
+            )
+
+            # Check each product for stock
+            for product_url in product_links:
+                try:
+                    sku_from_url = self._extract_sku_from_url(product_url)
+                    if not sku_from_url:
+                        continue
+
+                    # Navigate to product page
+                    await self._page.goto(
+                        product_url,
+                        wait_until="domcontentloaded",
+                        timeout=15000,
+                    )
+
+                    try:
+                        await self._page.wait_for_selector(
+                            '[data-test="product-title"]',
+                            timeout=8000,
+                        )
+                    except Exception:  # noqa: BLE001:
+                        pass
+
+                    in_stock, available_qty = await self._parse_stock_from_page(
+                        sku_from_url
+                    )
+
+                    if in_stock:
+                        self._log(
+                            "DEBUG",
+                            "KEYWORD_MATCH_FOUND",
+                            keyword=keyword,
+                            sku=sku_from_url,
+                            url=product_url,
+                            quantity=available_qty,
+                        )
+                        return StockStatus(
+                            in_stock=True,
+                            sku=sku_from_url,
+                            url=product_url,
+                            available_quantity=available_qty,
+                        )
+
+                except Exception:  # noqa: BLE001:
+                    continue
+
+            return StockStatus(in_stock=False, sku="")
+
+        except Exception as exc:  # noqa: BLE001
+            self._log(
+                "ERROR",
+                "KEYWORD_SEARCH_ERROR",
+                keyword=keyword,
+                error=str(exc),
+            )
+            return StockStatus(in_stock=False, sku="")
+
+    @staticmethod
+    def _extract_sku_from_url(url: str) -> str:
+        """Extract SKU from a Target product URL.
+
+        Args:
+            url: Target product URL (e.g., https://www.target.com/p/-/A-83821795).
+
+        Returns:
+            SKU string (e.g., "83821795") or empty string if not found.
+        """
+        import re
+
+        match = re.search(r"/A-([A-Z0-9]+)", url)
+        if match:
+            return match.group(1)
+        return ""
+
     async def _parse_stock_from_page(
         self,
         sku: str,

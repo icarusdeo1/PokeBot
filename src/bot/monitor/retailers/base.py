@@ -95,6 +95,25 @@ class RetailerAdapter(ABC):
         """Return True if currently in a queue/waiting room."""
         ...
 
+    @abstractmethod
+    async def check_stock_by_keyword(self, keyword: str) -> StockStatus:
+        """Check for in-stock items matching a keyword at this retailer.
+
+        Used as fallback when SKU-based detection is unavailable or as
+        parallel detection strategy per item config.
+
+        Searches the retailer site for the keyword and returns the first
+        in-stock match with matched SKU and URL.
+
+        Args:
+            keyword: Search keyword (e.g., "Charizard Elite Trainer Box").
+
+        Returns:
+            StockStatus with in_stock=True and matched item details, or
+            in_stock=False if no matching in-stock item found.
+        """
+        ...
+
     # ── HTTP Client ───────────────────────────────────────────────────────
 
     def get_http_client(self) -> httpx.AsyncClient:
