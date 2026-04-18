@@ -116,13 +116,22 @@
 
 ---
 
-**SHARED-T06**
+**SHARED-T06** ✅ DONE
 - **Title:** Implement crash recovery (state.json persistence)
 - **Feature Area:** `shared/`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T02, SHARED-T03
 - **Description:** Implement crash recovery: on abnormal exit (signal, unhandled exception), persist current checkout state to `state.json` — item, retailer, stage reached, timestamps. On restart, load `state.json` and either skip already-ordered items or resume from last known good stage. PRD Section 9.14 (OP-1, OP-2).
+- **Acceptance Criteria:**
+  - [x] CrashRecovery context manager with signal handlers (SIGTERM, SIGINT, SIGHUP)
+  - [x] Persists state.json on abnormal exit (signal, unhandled exception)
+  - [x] Clears state.json on normal exit
+  - [x] CrashRecoveryState dataclass with item, retailer, stage, timestamps, order_id, error
+  - [x] update() API for stage transitions during checkout
+  - [x] load() and clear() for restart recovery
+  - [x] Tests: 21 passed
+  - [x] mypy: no issues
 
 ---
 
