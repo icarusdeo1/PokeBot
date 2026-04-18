@@ -945,13 +945,22 @@
 
 ---
 
-**CAPTCHA-T01**
+**CAPTCHA-T01** ✅ DONE
 - **Title:** Implement CAPTCHA detection (reCAPTCHA, hCaptcha, Turnstile)
 - **Feature Area:** `bot/checkout/captcha.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** ADAPTER-T02
 - **Description:** Detect reCAPTCHA, hCaptcha, and Cloudflare Turnstile challenges on retailer pages. Use Playwright to identify CAPTCHA challenge presence and type. PRD Section 9.4 (CAP-1).
+- **Acceptance Criteria:**
+  - [x] `detect_captcha()` function scans page for reCAPTCHA v2, reCAPTCHA v3, hCaptcha, and Turnstile challenges
+  - [x] URL-based detection for fast-path identification (hcaptcha.com, turnstile/cloudflare, recaptcha)
+  - [x] DOM-based detection via CSS selector queries (iframe, script, element selectors)
+  - [x] `CaptchaDetectionResult` dataclass with detected, captcha_type, challenge_url, element_selector fields
+  - [x] `CaptchaType` enum covers RECAPTCHA_V2, RECAPTCHA_V3, HCAPTCHA, TURNSTILE, UNKNOWN
+  - [x] Priority order: hCaptcha > Turnstile > reCAPTCHA v2 > reCAPTCHA v3
+  - [x] Tests: 22 passed
+  - [x] mypy: no issues
 
 ---
 
