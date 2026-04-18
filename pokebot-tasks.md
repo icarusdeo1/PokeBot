@@ -404,13 +404,22 @@
 
 ---
 
-**NOTIF-T02**
+**NOTIF-T02** ✅ DONE
 - **Title:** Implement Telegram webhook notifications
 - **Feature Area:** `bot/notifications/telegram.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** NOTIF-T01
 - **Description:** Implement `TelegramWebhook`: send formatted messages via Telegram Bot API. Same retry and queue behavior as Discord. PRD Sections 9.6 (NOT-2, NOT-3, NOT-4, NOT-6).
+- **Acceptance Criteria:**
+  - [x] TelegramWebhook extends WebhookClient with HTTPS URL validation
+  - [x] HTML-formatted messages with emoji per event type
+  - [x] chat_id as constructor argument, included in all sendMessage calls
+  - [x] Rich message body with item, retailer, order_id, error, and other fields
+  - [x] ISO-8601 timestamps and event type in all messages
+  - [x] All 29 documented event types covered in _EVENT_EMOJI and _EVENT_TITLES
+  - [x] Tests: 17 passed
+  - [x] mypy: no issues
 
 ---
 
