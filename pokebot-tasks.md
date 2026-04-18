@@ -361,23 +361,38 @@
 
 ---
 
-**CHECKOUT-T03**
+**CHECKOUT-T03** ✅ DONE
 - **Title:** Implement PaymentHandler
 - **Feature Area:** `bot/checkout/payment.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T03, SHARED-T04
 - **Description:** Implement payment form autofill. Handle payment decline (retry once after 2s delay, abort on second decline). Fire PAYMENT_DECLINED webhook. Mask sensitive fields (card_number, cvv) in all logs. PRD Sections 9.3 (CO-2, CO-6), 10.3 (Security).
+- **Acceptance Criteria:**
+  - [x] PaymentAutofill class with card type detection (Visa, Mastercard, Amex, Discover)
+  - [x] Card number masking for log-safe display
+  - [x] build_payment_form_data() for retailer-specific field mapping
+  - [x] PaymentDeclineHandler with retry logic (1 retry after 2s, abort on 2nd decline)
+  - [x] PAYMENT_DECLINED webhook callback on abort (supports sync and async callbacks)
+  - [x] Tests: 31 passed
+  - [x] mypy: no issues
 
 ---
 
-**CHECKOUT-T04**
+**CHECKOUT-T04** ✅ DONE
 - **Title:** Implement ShippingInfo autofill
 - **Feature Area:** `bot/checkout/shipping.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T03, SHARED-T04
 - **Description:** Implement shipping form autofill from `ShippingInfo` config. Apply billing address same as shipping by default. PRD Section 9.3 (CO-1, CO-3).
+- **Acceptance Criteria:**
+  - [x] ShippingAutofill class with field mapping support
+  - [x] build_shipping_form_data() for retailer-specific forms
+  - [x] apply_billing_same_as_shipping() helper (non-mutating)
+  - [x] Standard field mappings for common retailers
+  - [x] Tests: 17 passed
+  - [x] mypy: no issues
 
 ---
 
