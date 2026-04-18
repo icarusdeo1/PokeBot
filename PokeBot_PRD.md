@@ -872,6 +872,7 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 | Adapter Plugin Architecture | No | No | Yes — load retailers as plugins |
 | CAPTCHA Budget Tracker | No | No | Yes — daily cap, per-retailer cap, solve time alerts |
 | CAPTCHA Manual Mode + Smart Routing | No | No | Yes — operator can pause and solve manually |
+| Web Dashboard | No | Future | **Primary interface (v4.0)** |
 | Cart Quantity Control | No | No | Yes — operator sets max items per SKU added to cart (per drop window) |
 | Success Rate (est.) | 60–70% | 80–85% | 85–90% |
 
