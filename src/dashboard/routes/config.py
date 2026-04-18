@@ -1,6 +1,6 @@
-"""Config routes: GET /api/config, PATCH /api/config.
+"""Config routes: GET /api/config, PATCH /api/config, POST /api/config/validate, POST /api/config/reload.
 
-Per PRD Sections 9.8 (CFG-9, CFG-10), 9.7 (DSH-7).
+Per PRD Sections 9.7 (DSH-7), 9.7 (DSH-8), 9.8 (CFG-2, CFG-8, CFG-9, CFG-10, CFG-11).
 """
 
 from __future__ import annotations
@@ -117,6 +117,109 @@ async def patch_config_route(
 
     # Return the newly saved masked config
     return JSONResponse(content=new_config.mask_secrets())
+
+
+async def config_validate_route(
+    request: Request,
+    _: DashboardSession = Depends(require_auth(UserRole.VIEWER)),
+) -> JSONResponse:
+    """Run full config validation and return pass/fail with field-level errors.
+
+    POST /api/config/validate
+
+    Requires VIEWER role (read-only check).
+    Per PRD Sections 9.7 (DSH-8), 9.8 (CFG-2).
+
+    Request body: optional raw config dict to validate.
+    If not provided, validates the current config.yaml on disk.
+    """
+    config_path = _get_config_path()
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+
+    if body is not None:
+        # Validate the provided raw config dict
+        try:
+            Config._from_raw(body, config_path)
+        except ConfigError as exc:
+            return JSONResponse(
+                content={
+                    "valid": False,
+                    "errors": exc.errors,
+                },
+                status_code=200,
+            )
+        return JSONResponse(
+            content={
+                "valid": True,
+                "errors": [],
+            },
+            status_code=200,
+        )
+    else:
+        # Validate the current on-disk config
+        try:
+            config = Config.from_file(config_path)
+            return JSONResponse(
+                content={
+                    "valid": True,
+                    "errors": [],
+                },
+                status_code=200,
+            )
+        except ConfigError as exc:
+            return JSONResponse(
+                content={
+                    "valid": False,
+                    "errors": exc.errors,
+                },
+                status_code=200,
+            )
+
+
+async def config_reload_route(
+    _: DashboardSession = Depends(require_auth(UserRole.OPERATOR)),
+) -> JSONResponse:
+    """Re-read config.yaml from disk, validate, and apply.
+
+    POST /api/config/reload
+
+    Requires OPERATOR role.
+    Per PRD Sections 9.8 (CFG-8), 9.14 (OP-5).
+
+    If the config on disk is invalid, logs an error and continues with
+    the previous (in-memory) config. Returns the validated (masked) config
+    on success.
+    """
+    config_path = _get_config_path()
+
+    try:
+        new_config = Config.from_file(config_path)
+        # Reload is valid — return masked config
+        return JSONResponse(
+            content={
+                "status": "ok",
+                "message": "Config reloaded successfully",
+                "config": new_config.mask_secrets(),
+            },
+            status_code=200,
+        )
+    except ConfigError as exc:
+        # Config on disk is invalid — log and continue with previous config
+        from src.bot.logger import logger
+
+        logger().error("CONFIG_RELOAD_FAILED", errors=exc.errors)
+        return JSONResponse(
+            content={
+                "status": "error",
+                "message": "Config file is invalid — not reloaded",
+                "errors": exc.errors,
+            },
+            status_code=400,
+        )
 
 
 # ── Merge helper ───────────────────────────────────────────────────────────────

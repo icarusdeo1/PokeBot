@@ -738,13 +738,20 @@
 
 ---
 
-**ROUTE-T04**
+**ROUTE-T04** ✅ DONE
 - **Title:** Implement /api/monitor/start and /stop routes
 - **Feature Area:** `dashboard/routes/monitor.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** AUTH-T02, SHARED-T02
 - **Description:** Implement `POST /api/monitor/start` and `POST /api/monitor/stop`. Write commands to `state.db` command queue. Return confirmation. Both require confirmation dialog on frontend (DSH-4). PRD Section 9.7 (DSH-4).
+- **Acceptance Criteria:**
+  - [x] `monitor_start_route()` with OPERATOR role auth, enqueues 'start' command to state.db, returns command_id
+  - [x] `monitor_stop_route()` with OPERATOR role auth, enqueues 'stop' command to state.db, returns command_id
+  - [x] Both routes require OPERATOR role (VIEWER gets 403)
+  - [x] Both routes write to command_queue via `db.enqueue_command()`
+  - [x] Tests: 7 passed (tests/test_dashboard/test_monitor.py)
+  - [x] mypy: clean on source files
 
 ---
 
@@ -758,33 +765,57 @@
 
 ---
 
-**ROUTE-T06**
+**ROUTE-T06** ✅ DONE
 - **Title:** Implement /health health check route
 - **Feature Area:** `dashboard/routes/health.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** AUTH-T02
 - **Description:** Implement `GET /health`: returns HTTP 200 + JSON `{status, active_items, session_health, last_event_at, uptime_seconds}`. Does NOT require authentication. Used for daemon offline detection. PRD Sections 9.14 (OP-3, OP-4), 18.
+- **Acceptance Criteria:**
+  - [x] `health_route()` is a public endpoint (no auth required)
+  - [x] Returns JSON: status (online/offline), active_items, session_health, last_event_at, uptime_seconds
+  - [x] Status online when events exist in DB; offline when empty
+  - [x] Active items inferred from MONITOR_STARTED without matching STOPPED
+  - [x] Session health per retailer: green (valid, >10min), yellow (≤10min), red (expired/invalid)
+  - [x] Uptime calculated from oldest MONITOR_STARTED timestamp
+  - [x] Gracefully handles DB errors (returns offline rather than 500)
+  - [x] Tests: 7 passed (tests/test_dashboard/test_health.py)
+  - [x] mypy: clean on source files
 
 ---
 
-**ROUTE-T07**
+**ROUTE-T07** ✅ DONE
 - **Title:** Implement /api/config/validate route
 - **Feature Area:** `dashboard/routes/config.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T04, AUTH-T02
 - **Description:** Implement `POST /api/config/validate`: runs full config validation, returns pass/fail with specific field-level error messages. PRD Sections 9.7 (DSH-8), 9.8 (CFG-2).
+- **Acceptance Criteria:**
+  - [x] `config_validate_route()` with VIEWER role auth
+  - [x] Validates provided raw config dict if request body is present
+  - [x] Falls back to validating current on-disk config.yaml if no body
+  - [x] Returns {valid: bool, errors: []} on success
+  - [x] Returns {valid: False, errors: [...]} with field-level errors on failure
+  - [x] mypy: clean on source files
 
 ---
 
-**ROUTE-T08**
+**ROUTE-T08** ✅ DONE
 - **Title:** Implement /api/config/reload hot-reload route
 - **Feature Area:** `dashboard/routes/config.py`
 - **Priority:** P1
 - **Complexity:** S
 - **Dependencies:** SHARED-T04, AUTH-T02
 - **Description:** Implement `POST /api/config/reload`: re-reads config.yaml from disk, validates, and applies. If invalid, logs error and continues with previous config. PRD Sections 9.8 (CFG-8), 9.14 (OP-5).
+- **Acceptance Criteria:**
+  - [x] `config_reload_route()` with OPERATOR role auth
+  - [x] Loads and validates current config.yaml from disk
+  - [x] Returns {status: "ok", config: masked_config} on success
+  - [x] Returns {status: "error", errors: [...]} with HTTP 400 on invalid config
+  - [x] Logs CONFIG_RELOAD_FAILED via logger() on error
+  - [x] mypy: clean on source files
 
 ---
 
@@ -798,13 +829,17 @@
 
 ---
 
-**ROUTE-T10**
+**ROUTE-T10** ✅ DONE
 - **Title:** Implement /api/daemon/restart route
 - **Feature Area:** `dashboard/routes/`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** AUTH-T02
 - **Description:** Implement `POST /api/daemon/restart`: signal daemon to restart. Write restart command to state.db. Dashboard shows "Daemon Offline" banner during restart. PRD Section 9.7 (DSH-16).
+- **Acceptance Criteria:**
+  - [x] `daemon_restart_route()` with OPERATOR role auth, enqueues 'restart' command, returns command_id
+  - [x] Uses `db.enqueue_command(command="restart", args={})`
+  - [x] mypy: clean on source files
 
 ---
 
