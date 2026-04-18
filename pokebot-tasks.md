@@ -1530,13 +1530,33 @@
 
 ---
 
-**SESSION-T03**
+**SESSION-T03** ✅ DONE
 - **Title:** Implement automatic session re-authentication
 - **Feature Area:** `bot/session/`
 - **Priority:** P1
 - **Complexity:** S
-- **Dependencies:** SESSION-T02, ADAPTER-T02
+- **Dependencies:** SESSION-T02 ✓, ADAPTER-T02 ✓
 - **Description:** Detect session expiration mid-checkout. Automatically re-authenticate using pre-warmed credentials. Restart checkout from cart. Fire `SESSION_EXPIRED` webhook on failure. PRD Sections 9.1 (MON-10), 12 (Session cookie expires edge case).
+- **Completed:** 2026-04-18 (commit 9353bb1)
+- **Implementation:**
+  - `src/bot/session/reauth.py`: New `SessionReauthenticator` class with `check_and_reauth()`, `reauth_on_error()`, `_reauthenticate()`, `_inject_session()`.
+    - `check_and_reauth()`: proactively verifies session before checkout, re-authenticates if expired.
+    - `reauth_on_error()`: on session errors (401, "please sign in", "session expired", etc.) triggers re-auth.
+    - 12 session error indicators detected (unauthorized, 401, please sign in, etc.).
+    - `SESSION_EXPIRED` webhook fired on re-auth failure.
+  - `src/bot/checkout/checkout_flow.py`: `CheckoutFlow.__init__` accepts `session_prewarmer`; `run()` does proactive check before checkout; on session error, re-auths and retries once.
+  - `src/bot/monitor/stock_monitor.py`: `_get_account_for_item()` uses `AccountAssigner` for per-account lookup; `_route_to_checkout()` passes `account_name` to `checkout_flow.run()`.
+  - `daemon.py`: `CheckoutFlow` receives `session_prewarmer` for re-auth integration.
+- **Acceptance Criteria:**
+  - [x] `SessionReauthenticator` class with `check_and_reauth()` and `reauth_on_error()` methods
+  - [x] Session expiry detection before checkout (proactive)
+  - [x] Session error detection mid-checkout (401, unauthorized, session expired, etc.)
+  - [x] Re-authentication via adapter login using stored config credentials
+  - [x] Fresh session injected into adapter after successful re-auth
+  - [x] Single re-auth per checkout attempt (prevents re-auth loops)
+  - [x] `SESSION_EXPIRED` webhook fired on re-auth failure
+  - [x] 19 tests passed (`test_reauth.py`)
+  - [x] mypy: clean on all changed files
 
 ---
 
