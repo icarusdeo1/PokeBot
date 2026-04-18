@@ -402,13 +402,23 @@
 
 ---
 
-**SESSION-T02**
+**SESSION-T02** ✅ DONE
 - **Title:** Implement session persistence and reuse
 - **Feature Area:** `bot/session/`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SESSION-T01, SHARED-T02
 - **Description:** Persist and reuse browser session cookies across checks. Store in `state.db` per retailer. Check expiry before each monitoring cycle; re-authenticate if expired. PRD Section 9.1 (MON-8), 9.1 (MON-10).
+- **Acceptance Criteria:**
+  - [x] `SessionPersistence` class with `save_session()`, `load_session()`, `invalidate_session()`, `load_all_sessions()`
+  - [x] `SessionPrewarmer` accepts optional `db: DatabaseManager` parameter and integrates persistence
+  - [x] After successful pre-warm, session is saved to `state.db` with TTL-based `expires_at`
+  - [x] `get_valid_session()` falls back to DB when session not in memory cache
+  - [x] Expired sessions are detected on load and marked invalid in DB
+  - [x] `load_from_db()` pre-populates the in-memory cache from persisted sessions on startup
+  - [x] `expires_at` field added to `SessionState` model and `session_state` table
+  - [x] Tests: 67 passed (session tests)
+  - [x] mypy: no issues
 
 ---
 
