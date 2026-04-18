@@ -146,6 +146,17 @@
 - **Complexity:** M
 - **Dependencies:** SHARED-T03, SHARED-T04
 - **Description:** Create abstract `RetailerAdapter` base class with all abstract methods: `login()`, `check_stock()`, `add_to_cart()`, `get_cart()`, `checkout()`, `handle_captcha()`, `check_queue()`. Include common utilities: session cookie management, prewarm logic, HTTP client setup via httpx. PRD Sections 9.1, 9.2, 9.3.
+- **Acceptance Criteria:**
+  - [x] Abstract `RetailerAdapter(ABC)` base class with all abstract methods implemented
+  - [x] HTTP client setup via `httpx.AsyncClient` with connection pooling and timeouts
+  - [x] Session state management: `save_session_state()`, `invalidate_session()`, `is_prewarmed()`
+  - [x] Jitter helper: `apply_jitter(base_interval_ms, jitter_percent)` returning seconds
+  - [x] Retry with backoff: `retry_with_backoff()` with exponential backoff
+  - [x] Rate limit detection and retry: `handle_rate_limit()` for HTTP 429
+  - [x] Stock check with retry: `stock_check_with_retry()` wrapper
+  - [x] Subclass hook: `get_retailer_config()` for retailer-specific config access
+  - [x] Tests: 27 passed
+  - [x] mypy: no issues
 
 ---
 
