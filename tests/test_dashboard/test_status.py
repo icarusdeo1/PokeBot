@@ -18,7 +18,14 @@ from src.dashboard.routes.status import (
     _get_state_db,
     status_route,
 )
+from src.dashboard.auth import UserRole
 from src.shared.db import DatabaseManager
+
+
+class MockSession:
+    role = UserRole.OPERATOR
+    session_token = 'mock-token'
+    created_at = '2026-01-01T00:00:00Z'
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -173,7 +180,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         assert result["online"] is True
         assert "Pokemon Scarlet" in result["active_items"]
@@ -187,7 +194,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         assert result["online"] is False
         assert result["active_items"] == []
@@ -206,7 +213,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         assert result["session_health"]["walmart"] == "red"
 
@@ -234,7 +241,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         # SESSION_EXPIRED on walmart → red; target has valid session → green
         assert result["session_health"]["walmart"] == "red"
@@ -254,7 +261,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         # Most recent event is MONITOR_STOPPED (id=4), timestamp = now - 2min
         assert result["last_event_at"] is not None
@@ -275,7 +282,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         # Oldest MONITOR_STARTED is 5 minutes ago
         assert result["uptime_seconds"] >= 300
@@ -296,7 +303,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         assert set(result.keys()) == {
             "online",
@@ -304,6 +311,7 @@ class TestStatusRoute:
             "session_health",
             "last_event_at",
             "uptime_seconds",
+            "role",
         }
 
     @pytest.mark.asyncio
@@ -322,7 +330,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         # Should not raise; returns offline
         assert result["online"] is False
@@ -352,7 +360,7 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()  # must not raise
+                result = await status_route(session=MockSession())  # must not raise
 
         assert "online" in result
 
@@ -383,6 +391,6 @@ class TestStatusRoute:
                 "src.dashboard.routes.status._get_state_db",
                 return_value=mock_db,
             ):
-                result = await status_route()
+                result = await status_route(session=MockSession())
 
         assert result["active_items"].count("Pokemon Scarlet") == 1
