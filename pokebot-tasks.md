@@ -426,13 +426,23 @@
 
 ---
 
-**CHECKOUT-T01**
+**CHECKOUT-T01** ✅ DONE
 - **Title:** Implement CartManager
 - **Feature Area:** `bot/checkout/cart_manager.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** ADAPTER-T02
 - **Description:** Implement cart management: add item via retailer API (preferred) or UI Playwright automation (fallback). Verify item is in cart before proceeding. Handle errors (item OOS, quantity limit). Prevent duplicate adds for same SKU. Implement `max_cart_quantity` enforcement (CART-7) and retailer purchase limit precedence (CART-8). PRD Section 9.2 (CART-1 to CART-8).
+- **Acceptance Criteria:**
+  - [x] `CartManager` class with `add_item()`, `verify_cart()`, `clear_cart()`, `get_cart()`, `reset_session()`
+  - [x] API-first add with UI fallback to Playwright automation (CART-1)
+  - [x] Cart verification before proceeding to checkout (CART-2)
+  - [x] Duplicate add prevention within session (CART-6)
+  - [x] `max_cart_quantity` enforcement from config (CART-7)
+  - [x] Retailer purchase limit precedence over global max (CART-8)
+  - [x] Clear cart between checkout attempts (CART-5)
+  - [x] Tests: 25 passed
+  - [x] mypy: no issues
 
 ---
 
