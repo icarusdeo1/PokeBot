@@ -170,8 +170,8 @@ async def test_stock_monitor_start_creates_monitor_tasks(
     with patch.object(
         monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)
     ):
-        # Start monitoring in background, stop after brief period
-        start_task = asyncio.create_task(monitor.start())
+        # start() waits for dashboard start command — use start_monitoring() directly
+        start_task = asyncio.create_task(monitor.start_monitoring())
 
         # Give tasks time to start
         await asyncio.sleep(0.1)
@@ -181,7 +181,7 @@ async def test_stock_monitor_start_creates_monitor_tasks(
         assert monitor._running is True
 
         # Stop monitoring
-        await monitor.stop()
+        await monitor.stop_monitoring()
         await start_task
 
 
@@ -204,12 +204,13 @@ async def test_stock_monitor_stop_cancels_all_tasks(
     with patch.object(
         monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)
     ):
-        start_task = asyncio.create_task(monitor.start())
+        # Use start_monitoring() directly (bypasses dashboard start command gate)
+        start_task = asyncio.create_task(monitor.start_monitoring())
         await asyncio.sleep(0.05)
 
         assert len(monitor._monitor_tasks) >= 1
 
-        await monitor.stop()
+        await monitor.stop_monitoring()
 
         # Tasks should be cancelled/done
         for task_key, task in monitor._monitor_tasks.items():
@@ -775,10 +776,11 @@ async def test_disabled_items_not_monitored(
         monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)
     ):
         with patch.object(monitor, "session_prewarmer", mock_session_prewarmer):
-            # Run start() as background task and stop after brief period
-            start_task = asyncio.create_task(monitor.start())
+            # start() waits for dashboard start command — use start_monitoring() directly
+            start_task = asyncio.create_task(monitor.start_monitoring())
             await asyncio.sleep(0.1)
-            await monitor.stop()
+            await monitor.stop_monitoring()
+            await start_task
 
             # Verify MONITOR_ITEM_SKIPPED was logged for disabled item
             mock_logger.info.assert_any_call(
