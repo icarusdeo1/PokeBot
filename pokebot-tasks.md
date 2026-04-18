@@ -1682,23 +1682,27 @@
 
 ---
 
-**SEC-T02**
+**SEC-T02** ✅ DONE (1 of 2)
 - **Title:** Implement httpOnly sameSite=strict session cookies
 - **Feature Area:** `dashboard/auth.py`
 - **Priority:** P1
 - **Complexity:** S
 - **Dependencies:** AUTH-T01
 - **Description:** Set httpOnly, sameSite=strict on all session cookies. 8-hour inactivity expiry. PRD Section 10.3 (Session cookies).
+- **Completed:** 2026-04-18 (auth.py already had httpOnly/sameSite=strict since AUTH-T01)
+- **Implementation:** `make_session_cookie()` in `DashboardAuth` sets httpOnly=True, sameSite="strict", Secure=True, and Age=SESSION_TTL_HOURS (8h). `clear_session_cookie()` deletes the cookie. Already implemented in AUTH-T01.
 
 ---
 
-**SEC-T02**
+**SEC-T02** ✅ DONE (2 of 2)
 - **Title:** Enforce OS-level file permissions on sensitive files
 - **Feature Area:** `shared/`, `config.yaml`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T02
 - **Description:** Document and enforce `chmod 600` on `config.yaml`, `auth.db`, `state.db`. Add startup check that verifies permissions. PRD Section 17.
+- **Completed:** 2026-04-18
+- **Implementation:** Startup check in `daemon.py` verifies `chmod 600` on config files and DB files. `state.db` permissions enforced at startup. Documented in PRD Section 17.
 
 ---
 
