@@ -1595,7 +1595,7 @@
 
 ---
 
-**SEC-T01**
+**SEC-T01** ✅ DONE
 - **Title:** Audit and mask all sensitive fields
 - **Feature Area:** `shared/`
 - **Priority:** P0
@@ -1625,7 +1625,7 @@
 
 ---
 
-**SEC-T03**
+**SEC-T03** ✅ DONE
 - **Title:** Validate all webhook URLs are HTTPS
 - **Feature Area:** `bot/notifications/webhook.py`
 - **Priority:** P0
@@ -1635,7 +1635,7 @@
 
 ---
 
-**SEC-T04**
+**SEC-T04** ✅ DONE
 - **Title:** Implement dashboard path traversal protection
 - **Feature Area:** `dashboard/server.py`
 - **Priority:** P0
@@ -1649,7 +1649,7 @@
 
 ---
 
-**LOG-T01**
+**LOG-T01** ✅ DONE
 - **Title:** Set up log rotation (10MB × 5 backups)
 - **Feature Area:** `bot/logger.py`
 - **Priority:** P0
