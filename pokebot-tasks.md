@@ -160,13 +160,26 @@
 
 ---
 
-**ADAPTER-T02**
+**ADAPTER-T02** ✅ DONE
 - **Title:** Implement TargetAdapter (full checkout)
 - **Feature Area:** `bot/monitor/retailers/target.py`
 - **Priority:** P0
 - **Complexity:** L
-- **Dependencies:** ADAPTER-T01, EVASION-T01
+- **Dependencies:** ADAPTER-T01, EVASION-T01, EVASION-T02, EVASION-T03, EVASION-T05, EVASION-T06
 - **Description:** Implement `TargetAdapter` extending `RetailerAdapter`. Handle: Playwright headless browser login to target.com, stock detection via page monitoring (OOS→IS), cart API + UI fallback, full checkout flow (shipping, payment, order review, submit), 1-Click checkout path. Implement queue/waiting room detection. PRD Sections 9.1 (MON-1 to MON-11), 9.2 (CART-1 to CART-8), 9.3 (CO-1 to CO-10). Phase 1 exit criteria adapter.
+- **Acceptance Criteria:**
+  - [x] TargetAdapter extends RetailerAdapter with super().__init__(config) called
+  - [x] login() via Playwright with credential autofill and verification
+  - [x] check_stock() via Target API (redsky) with Playwright page fallback
+  - [x] add_to_cart() via cart API with Playwright UI fallback; respects max_cart_quantity
+  - [x] get_cart() via cart API with Playwright UI fallback
+  - [x] checkout() with shipping/payment autofill, 1-Click path, review step, retry logic
+  - [x] handle_captcha() with smart routing (Turnstile→auto, others→manual), 2Captcha integration
+  - [x] check_queue() with URL, title, and body text detection
+  - [x] Anti-detection: stealth JS injection, UA rotation, fingerprint randomization, proxy support
+  - [x] All 7 RetailerAdapter abstract methods implemented
+  - [x] Tests: 59 total (28 existing + 31 new) all passing
+  - [x] mypy: clean across 30 source files
 
 ---
 
