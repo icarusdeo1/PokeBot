@@ -79,13 +79,21 @@
 
 ---
 
-**SHARED-T04**
+**SHARED-T04** ✅ DONE
 - **Title:** Implement config loading and validation
 - **Feature Area:** `bot/config.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** SHARED-T01, SHARED-T03
 - **Description:** Create `bot/config.py` to load and validate `config.yaml`. Implement schema validation for all required fields (retailers, items, shipping, payment, CAPTCHA). Raise clear errors on missing/invalid fields. Support environment variable overrides (`POKEDROP_2CAPTCHA_KEY`, `POKEDROP_DISCORD_URL`, etc.). PRD Sections 9.8, 11.
+- **Acceptance Criteria:**
+  - [x] Config class with from_file() factory and _validate() schema validation
+  - [x] Field-level ConfigError messages
+  - [x] Environment variable overrides for secrets (POKEDROP_CC_NUMBER, POKEDROP_2CAPTCHA_KEY, etc.)
+  - [x] mask_secrets() for safe API responses
+  - [x] get_enabled_retailers() helper
+  - [x] Tests: 56 passed
+  - [x] mypy: no issues
 
 ---
 
