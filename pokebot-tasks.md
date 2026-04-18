@@ -662,6 +662,14 @@
 - **Complexity:** S
 - **Dependencies:** AUTH-T01
 - **Description:** Implement FastAPI middleware for session validation on all `/api/*` routes (except `/login` and `/health`). Return 401 for invalid/expired sessions. Viewer role blocks all write operations. PRD Sections 5, 9.7 (DSH-15).
+- [x] SessionAuthMiddleware: validates session cookie on all /api/* routes
+- [x] /login and /health always public (no auth required)
+- [x] 401 returned for invalid/expired sessions
+- [x] Viewer role blocked from write operations (POST/PUT/PATCH/DELETE) with 403
+- [x] require_auth dependency uses Request injection for cookie extraction
+- [x] wire_auth() / _get_wired_auth() registry for server.py wiring
+- [x] Tests: 13 passed (test_dashboard/test_middleware.py)
+- [x] mypy: no issues
 
 ---
 
