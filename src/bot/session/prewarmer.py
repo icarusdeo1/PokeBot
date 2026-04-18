@@ -506,29 +506,54 @@ class SessionPrewarmer:
         self,
         adapter: RetailerAdapter,
     ) -> list[PrewarmResult]:
-        """Pre-warm all accounts for a given retailer in parallel.
+        """Pre-warm all accounts for a given retailer in parallel (MAC-4).
 
-        This is used by MAC-T04 (parallel account pre-warming) where
-        multiple accounts for the same retailer are warmed simultaneously.
+        Multiple accounts for the same retailer are warmed simultaneously
+        using asyncio.gather for maximum speed during pre-drop pre-warming.
 
         Args:
-            adapter: The retailer adapter class or instance.
+            adapter: The retailer adapter instance.
 
         Returns:
             List of PrewarmResult, one per account.
         """
         retailer = adapter.name
-        retailer_cfg = self.config.retailers.get(retailer)
-
-        # For multi-account (MAC-T01), we iterate over accounts within
-        # the retailer config. The current config structure has single
-        # username/password per retailer, but MAC-T01 extends this to
-        # support multiple accounts. Here we warm the primary account;
-        # MAC-T01 task will extend to multi-account.
         results: list[PrewarmResult] = []
 
-        result = await self._prewarm_adapter(adapter, "primary")
-        results.append(result)
+        # Get all enabled accounts for this retailer (MAC-T01 multi-account config)
+        accounts = self.config.accounts.get(retailer, [])
+        enabled_accounts = [a for a in accounts if a.enabled]
+
+        if not enabled_accounts:
+            # Fallback: use primary retailer credentials (single-account mode)
+            retailer_cfg = self.config.retailers.get(retailer)
+            if retailer_cfg and retailer_cfg.username and retailer_cfg.enabled:
+                result = await self._prewarm_adapter(adapter, retailer_cfg.username)
+                results.append(result)
+        else:
+            # Pre-warm all enabled accounts in parallel (MAC-T04)
+            tasks = [
+                self._prewarm_adapter(adapter, account.username)
+                for account in enabled_accounts
+            ]
+            raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Convert exceptions to failed PrewarmResult entries
+            results.clear()
+            for i, r in enumerate(raw_results):
+                if isinstance(r, Exception):
+                    results.append(
+                        PrewarmResult(
+                            retailer=retailer,
+                            account_name=enabled_accounts[i].username,
+                            success=False,
+                            prewarmed_at="",
+                            error=str(r),
+                            cookies_count=0,
+                        )
+                    )
+                else:
+                    results.append(r)  # type: ignore[arg-type]
+
         return results
 
     # ── Logging ─────────────────────────────────────────────────────────────
