@@ -169,6 +169,21 @@ class DatabaseManager:
                     "CREATE INDEX IF NOT EXISTS idx_captcha_date_retailer "
                     "ON captcha_spend(date, retailer)"
                 )
+                # ── account_purchases table (MAC-T03 / MAC-3) ────────────────────
+                conn.execute(
+                    """CREATE TABLE IF NOT EXISTS account_purchases (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        item TEXT NOT NULL,
+                        retailer TEXT NOT NULL,
+                        drop_window_id TEXT NOT NULL DEFAULT '',
+                        account_index INTEGER NOT NULL,
+                        purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )"""
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_purchase_lookup "
+                    "ON account_purchases(item, retailer, drop_window_id)"
+                )
                 conn.commit()
 
     def initialize(self) -> Self:
@@ -507,6 +522,87 @@ class DatabaseManager:
                 (date_str,),
             ).fetchone()
         return float(row[0] or 0.0)
+
+    # ── Account Purchase Tracking (MAC-T03 / MAC-3) ─────────────────────────
+
+    def record_account_purchase(
+        self,
+        item: str,
+        retailer: str,
+        drop_window_id: str,
+        account_index: int,
+    ) -> None:
+        """Record that an account purchased an item during a drop window.
+
+        Enforces one-purchase-per-account: same item cannot be purchased by
+        two accounts in the same drop window (MAC-3).
+        """
+        with self._write_lock:
+            with self.connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO account_purchases
+                        (item, retailer, drop_window_id, account_index)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (item, retailer, drop_window_id, account_index),
+                )
+                conn.commit()
+
+    def has_item_been_purchased_in_window(
+        self,
+        item: str,
+        retailer: str,
+        drop_window_id: str,
+    ) -> bool:
+        """Return True if this item has already been purchased in this drop window.
+
+        Used by MAC-T03 one-purchase-per-account enforcement.
+        """
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM account_purchases
+                WHERE item=? AND retailer=? AND drop_window_id=?
+                LIMIT 1
+                """,
+                (item, retailer, drop_window_id),
+            ).fetchone()
+        return row is not None
+
+    def get_purchase_window_for_item(
+        self,
+        item: str,
+        retailer: str,
+    ) -> str | None:
+        """Return the most recent drop_window_id that this item was purchased in.
+
+        Returns None if the item has never been purchased.
+        """
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT drop_window_id FROM account_purchases
+                WHERE item=? AND retailer=?
+                ORDER BY purchased_at DESC LIMIT 1
+                """,
+                (item, retailer),
+            ).fetchone()
+        return row[0] if row else None
+
+    def clear_purchase_history(self, older_than_days: int = 30) -> int:
+        """Clear purchase history older than N days. Returns count of rows deleted."""
+        with self._write_lock:
+            with self.connection() as conn:
+                cursor = conn.execute(
+                    """
+                    DELETE FROM account_purchases
+                    WHERE purchased_at < datetime('now', ?||' days')
+                    """,
+                    (str(-older_than_days),),
+                )
+                conn.commit()
+                return cursor.rowcount
 
     # ── Utility ─────────────────────────────────────────────────────────────
 
