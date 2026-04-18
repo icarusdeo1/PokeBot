@@ -655,7 +655,7 @@
 
 ---
 
-**AUTH-T02**
+**AUTH-T02** ✅ DONE
 - **Title:** Implement session management middleware
 - **Feature Area:** `dashboard/auth.py`
 - **Priority:** P0
@@ -1133,13 +1133,24 @@
 
 ---
 
-**SERVER-T02**
+**SERVER-T02** ✅ DONE
 - **Title:** Integrate dashboard with daemon via command queue
 - **Feature Area:** `dashboard/server.py`, `daemon.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** SERVER-T01, SHARED-T02, DAEMON-T01
 - **Description:** Dashboard sends commands (start/stop/dry-run) by writing to `state.db` command queue table. Daemon polls command queue or uses file lock signal. Implement command/response pattern. PRD Section 7.1 (Daemon ↔ Dashboard communication).
+- **Acceptance Criteria:**
+  - [x] Dashboard POST /api/monitor/start enqueues "start" command to state.db command_queue
+  - [x] Dashboard POST /api/monitor/stop enqueues "stop" command to state.db command_queue
+  - [x] Dashboard POST /api/daemon/restart enqueues "restart" command to state.db command_queue
+  - [x] Dashboard POST /api/dryrun enqueues "dryrun" command to state.db command_queue
+  - [x] Daemon `_command_poller()` polls command_queue every 1 second via `claim_pending_command()`
+  - [x] Daemon processes start/stop/restart/dryrun commands and calls `complete_command()` when done
+  - [x] All command routes require OPERATOR role via `require_auth(UserRole.OPERATOR)`
+  - [x] Command pattern: dashboard enqueues → daemon polls → processes → marks complete
+  - [x] Tests: monitor route tests pass (7/7)
+  - [x] mypy: no issues
 
 ---
 
@@ -1260,13 +1271,24 @@
 
 ---
 
-**PHASE3-T02**
+**PHASE3-T02** ✅ DONE
 - **Title:** Implement drop window auto-prewarm logic
 - **Feature Area:** `bot/monitor/stock_monitor.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** PHASE3-T01, SESSION-T01
 - **Description:** Implement auto-prewarm: when countdown reaches `prewarm_minutes` for a drop window, automatically start session pre-warming. Multiple drop windows can be active simultaneously. PRD Sections 9.9 (DWC-2, DWC-4).
+- **Acceptance Criteria:**
+  - [x] `_check_drop_windows()` runs on 30s scheduler interval
+  - [x] Computes `minutes_until_drop` from drop_datetime and current UTC time
+  - [x] Auto-prewarm triggers when `0 < minutes_until_drop <= prewarm_minutes`
+  - [x] Session pre-warming invoked via `session_prewarmer.prewarm_now()` per window
+  - [x] `_prewarmed_windows` dict tracks which windows have been prewarmed (no re-prewarm)
+  - [x] Recurring drops: next occurrence recomputed each cycle
+  - [x] DROP_WINDOW_APPROACHING webhook fires on prewarm trigger (DWC-5, PHASE3-T04)
+  - [x] PREWARM_URGENT webhook fires when `0 < minutes_until_drop <= 5` and not prewarmed (DCT-T03)
+  - [x] Tests: 16 drop window scheduler tests + 3 daemon tests pass
+  - [x] mypy: no issues
 
 ---
 
