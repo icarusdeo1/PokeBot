@@ -236,6 +236,17 @@
 - **Complexity:** S
 - **Dependencies:** ADAPTER-T01, ADAPTER-T02
 - **Description:** Implement plugin discovery: auto-load adapters from `src/monitor/retailers/` that inherit from `RetailerAdapter`. Create a registry mapping retailer name → adapter class. Validate adapter interface on load. PRD Section 9.15 (ADP-1, ADP-2, ADP-3).
+- **Acceptance Criteria:**
+  - [x] `AdapterPlugin` dataclass with name, cls, module_name, version, dependencies fields
+  - [x] `AdapterRegistry` class with manual `register()` and `discover()` methods
+  - [x] `discover()` auto-loads adapters from retailers package via pkgutil.iter_modules
+  - [x] Registry maps retailer name → adapter class via `get()` and `is_registered()`
+  - [x] `validate()` checks all adapters have required abstract methods
+  - [x] `get_default_registry()` singleton with lazy discovery
+  - [x] `RETAILER_MODULE_NAMES` frozenset for discoverable module names
+  - [x] Tests: 24 passed
+  - [x] mypy: no issues
+
 
 ---
 
