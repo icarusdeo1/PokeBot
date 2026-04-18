@@ -165,6 +165,26 @@ class Config:
         cfg._validate()
         return cfg
 
+    @classmethod
+    def _from_raw(cls, raw: dict[str, Any], path: Path | str | None = None) -> Config:
+        """Build a Config from a raw dict (already merged, env overrides applied).
+
+        Used by PATCH /api/config to validate a merged config before writing.
+
+        Args:
+            raw: Raw config dict (already merged from current + update).
+            path: Path to config.yaml (used only for error messages).
+
+        Returns:
+            Validated Config instance.
+
+        Raises:
+            ConfigError: If validation fails.
+        """
+        cfg = cls(raw)
+        cfg._validate()
+        return cfg
+
     def _validate(self) -> None:
         """Validate all config fields. Raises ConfigError on failure."""
         errors: list[str] = []

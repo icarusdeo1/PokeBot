@@ -1,0 +1,31 @@
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T14:49:32.544703+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:49:32.545244+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T14:49:32.545531+00:00", "level": "INFO"}
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T14:50:39.026148+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:50:39.026743+00:00", "level": "ERROR"}
+{"event": "DAEMON_CONFIG_NOT_FOUND", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:50:39.027159+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T14:50:39.027306+00:00", "level": "INFO"}
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T14:53:35.183275+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:53:35.183762+00:00", "level": "ERROR"}
+{"event": "DAEMON_CONFIG_NOT_FOUND", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:53:35.184089+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T14:53:35.184179+00:00", "level": "INFO"}
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T14:53:40.383605+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:53:40.384161+00:00", "level": "ERROR"}
+{"event": "DAEMON_CONFIG_NOT_FOUND", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:53:40.384505+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T14:53:40.384612+00:00", "level": "INFO"}
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T14:55:21.759694+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:55:21.760154+00:00", "level": "ERROR"}
+{"event": "DAEMON_CONFIG_NOT_FOUND", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:55:21.760419+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T14:55:21.760502+00:00", "level": "INFO"}
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T14:56:28.723397+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:56:28.723835+00:00", "level": "ERROR"}
+{"event": "DAEMON_CONFIG_NOT_FOUND", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:56:28.724095+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T14:56:28.724172+00:00", "level": "INFO"}
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T14:57:11.087040+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:57:11.087482+00:00", "level": "ERROR"}
+{"event": "DAEMON_CONFIG_NOT_FOUND", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T14:57:11.087729+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T14:57:11.087810+00:00", "level": "INFO"}
+{"event": "DAEMON_LAUNCHED", "config": "/nonexistent/config.yaml", "timestamp": "2026-04-18T16:11:41.637529+00:00", "level": "INFO"}
+{"event": "CONFIG_LOAD_FAILED", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T16:11:41.637935+00:00", "level": "ERROR"}
+{"event": "DAEMON_CONFIG_NOT_FOUND", "error": "Config file not found: /nonexistent/config.yaml", "timestamp": "2026-04-18T16:11:41.638193+00:00", "level": "ERROR"}
+{"event": "DAEMON_EXIT", "timestamp": "2026-04-18T16:11:41.638316+00:00", "level": "INFO"}
