@@ -43,6 +43,113 @@ _RETAILERS = {"target", "walmart", "bestbuy"}
 _REQUIRED_TOP_LEVEL = {"retailers", "shipping", "payment"}
 _REQUIRED_SHIPPING = {"full_name", "address_line1", "city", "state", "zip_code", "phone"}
 _REQUIRED_PAYMENT = {"expiry_month", "expiry_year"}
+_SCHEDULE_TYPES = ("once", "recurring")
+
+
+def _validate_cron_field(value: str, min_val: int, max_val: int) -> list[int] | None:
+    """Parse a single cron field into a list of integers.
+
+    Supports: * (any), */step (stepped), range (1-5), comma-separated (1,5,10).
+    Returns None if the field is invalid.
+    """
+    if value == "*":
+        return list(range(min_val, max_val + 1))
+    values: set[int] = set()
+    for part in value.split(","):
+        part = part.strip()
+        if "/" in part:
+            range_part, step_part = part.split("/", 1)
+            step = int(step_part)
+            if range_part == "*":
+                rng = range(min_val, max_val + 1)
+            elif "-" in range_part:
+                s_str, e_str = range_part.split("-", 1)
+                rng = range(int(s_str), int(e_str) + 1)
+            else:
+                rng = range(int(range_part), int(range_part) + 1)
+            for v in rng:
+                if (v - rng.start) % step == 0:
+                    values.add(v)
+        elif "-" in part:
+            s_str, e_str = part.split("-", 1)
+            for v in range(int(s_str), int(e_str) + 1):
+                values.add(v)
+        else:
+            try:
+                values.add(int(part))
+            except ValueError:
+                return None
+    for v in values:
+        if v < min_val or v > max_val:
+            return None
+    return sorted(values)
+
+
+def _validate_cron_expr(expr: str) -> tuple[bool, str | None]:
+    """Validate a 5-field cron expression (minute hour day month weekday).
+
+    Returns (True, None) if valid, otherwise (False, error_message).
+    Weekday: 0=Mon ... 6=Sun.
+    """
+    if not expr or not str(expr).strip():
+        return False, "cron expression cannot be empty"
+    parts = str(expr).strip().split()
+    if len(parts) != 5:
+        return False, f"cron expression must have exactly 5 fields, got {len(parts)}"
+    bounds = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 6)]
+    # Weekday field: cron uses 0=Sun...6=Sat; we store as 0=Sun...6=Sat
+    # Python datetime.weekday() uses 0=Mon...6=Sun, so we need to remap
+    for part, (mn, mx) in zip(parts, bounds):
+        if _validate_cron_field(part, mn, mx) is None:
+            return False, f"invalid cron field '{part}' (valid range: {mn}-{mx})"
+    return True, None
+
+
+def _python_weekday_to_cron(python_wday: int) -> int:
+    """Convert Python weekday (0=Mon...6=Sun) to cron weekday (0=Sun...6=Sat)."""
+    # Python: 0=Mon,1=Tue,2=Wed,3=Thu,4=Fri,5=Sat,6=Sun
+    # Cron:    0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+    return (python_wday + 1) % 7
+
+
+def _cron_weekday_to_python(cron_wday: int) -> int:
+    """Convert cron weekday (0=Sun...6=Sat) to Python weekday (0=Mon...6=Sun)."""
+    # Cron:    0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+    # Python: 0=Mon,1=Tue,2=Wed,3=Thu,4=Fri,5=Sat,6=Sun
+    return (cron_wday + 6) % 7
+
+
+def _get_next_cron_occurrence(expr: str, after: datetime) -> datetime:
+    """Return the next datetime matching the cron expression strictly after `after`.
+
+    `after` must be timezone-aware (UTC). brute-forces up to 366 days forward.
+    Cron weekday convention: 0=Sun, 1=Mon, ..., 6=Sat.
+    """
+    import datetime as _dt
+
+    parts = expr.strip().split()
+    minute_vals = _validate_cron_field(parts[0], 0, 59) or []
+    hour_vals = _validate_cron_field(parts[1], 0, 23) or []
+    day_vals = _validate_cron_field(parts[2], 1, 31) or []
+    month_vals = _validate_cron_field(parts[3], 1, 12) or []
+    wday_vals = _validate_cron_field(parts[4], 0, 6) or []
+
+    current = after.replace(second=0, microsecond=0) + _dt.timedelta(minutes=1)
+
+    for _ in range(366 * 24 * 60):
+        cron_wday = _python_weekday_to_cron(current.weekday())
+        if (
+            current.minute in minute_vals
+            and current.hour in hour_vals
+            and current.day in day_vals
+            and current.month in month_vals
+            and cron_wday in wday_vals
+        ):
+            return current
+        current += _dt.timedelta(minutes=1)
+
+    # Should always find a match within a year for a valid expression
+    return current
 
 
 class ConfigError(Exception):
@@ -368,30 +475,63 @@ class Config:
                 )
                 max_cart_quantity = 1
 
+            # DCT-T04: schedule_type (once/recurring) and cron_expr
+            schedule_type = str(dw.get("schedule_type", "once")).strip().lower()
+            if schedule_type not in _SCHEDULE_TYPES:
+                errors.append(
+                    f"drop_windows[{i}].schedule_type must be one of {list(_SCHEDULE_TYPES)}, "
+                    f"got '{schedule_type}'"
+                )
+                schedule_type = "once"
+
+            cron_expr = str(dw.get("cron_expr", "")).strip()
+            if schedule_type == "recurring":
+                if not cron_expr:
+                    errors.append(
+                        f"drop_windows[{i}].cron_expr is required when schedule_type is 'recurring'"
+                    )
+                else:
+                    valid, err = _validate_cron_expr(cron_expr)
+                    if not valid:
+                        errors.append(f"drop_windows[{i}].cron_expr: {err}")
+
             # Only add to validated list if no errors for this window
             if not any("drop_windows[" + str(i) in e for e in errors):
-                validated_windows.append({
+                dw_entry: dict[str, Any] = {
                     "item": str(item).strip(),
                     "retailer": retailer,
                     "drop_datetime": str(drop_datetime_str).strip(),
                     "prewarm_minutes": prewarm_minutes,
                     "enabled": enabled,
                     "max_cart_quantity": max_cart_quantity,
+                    "schedule_type": schedule_type,
                     "_parsed_datetime": parsed_dt,
-                })
+                }
+                if schedule_type == "recurring":
+                    dw_entry["cron_expr"] = cron_expr
+                validated_windows.append(dw_entry)
 
-        # PHASE3-T03: prune past drop windows from active memory
+        # PHASE3-T03 / DCT-T04: prune past one-shot drops; recurring drops are never pruned
         now_utc = datetime.now(tz=_UTC)
         pruned_count = 0
         self.drop_windows = []
         for dw in validated_windows:
-            parsed = dw.get("_parsed_datetime")
-            if parsed is not None and parsed < now_utc:
-                pruned_count += 1
-                continue  # skip past drop windows
-            # Remove internal _parsed_datetime before storing
-            dw_copy = {k: v for k, v in dw.items() if k != "_parsed_datetime"}
-            self.drop_windows.append(dw_copy)
+            schedule_type = dw.get("schedule_type", "once")
+            if schedule_type == "recurring":
+                # Compute next occurrence from now
+                cron_expr = dw.get("cron_expr", "")
+                next_occurrence = _get_next_cron_occurrence(cron_expr, now_utc)
+                dw_copy = {k: v for k, v in dw.items() if k != "_parsed_datetime"}
+                dw_copy["_next_occurrence"] = next_occurrence
+                dw_copy["_parsed_datetime"] = next_occurrence
+                self.drop_windows.append(dw_copy)
+            else:
+                parsed = dw.get("_parsed_datetime")
+                if parsed is not None and parsed < now_utc:
+                    pruned_count += 1
+                    continue  # skip past one-shot drop windows
+                dw_copy = {k: v for k, v in dw.items() if k != "_parsed_datetime"}
+                self.drop_windows.append(dw_copy)
 
         self.accounts = self._raw.get("accounts", {}) or {}
 

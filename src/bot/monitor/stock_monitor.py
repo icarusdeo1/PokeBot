@@ -26,7 +26,7 @@ from src.shared.models import WebhookEvent
 
 if TYPE_CHECKING:
     from src.bot.checkout.checkout_flow import CheckoutFlow
-    from src.bot.config import Config
+    from src.bot.config import Config, _get_next_cron_occurrence, _validate_cron_expr
     from src.bot.logger import Logger
     from src.bot.monitor.retailers.base import RetailerAdapter
     from src.bot.session.prewarmer import SessionPrewarmer
@@ -772,35 +772,49 @@ class StockMonitor:
             item = dw.get("item", "")
             drop_datetime_str = dw.get("drop_datetime", "")
             prewarm_minutes = dw.get("prewarm_minutes", 15)
+            schedule_type = dw.get("schedule_type", "once")
 
-
-            # Parse drop datetime
-            drop_dt = self._parse_drop_datetime(drop_datetime_str)
-            if drop_dt is None:
-                continue
-
-            minutes_until_drop = (drop_dt - now).total_seconds() / 60.0
-            dw_key = f"{retailer}:{item}:{drop_datetime_str}"
+            # Compute drop_dt: for recurring drops, use cron to find next occurrence
+            if schedule_type == "recurring":
+                cron_expr = dw.get("cron_expr", "")
+                if not cron_expr:
+                    continue
+                drop_dt_recurring: datetime = _get_next_cron_occurrence(cron_expr, now)
+                dw_key = f"{retailer}:{item}:cron:{cron_expr}"
+                minutes_until_drop = (drop_dt_recurring - now).total_seconds() / 60.0
+                drop_dt = drop_dt_recurring
+            else:
+                drop_dt_parsed = self._parse_drop_datetime(drop_datetime_str)
+                if drop_dt_parsed is None:
+                    continue
+                dw_key = f"{retailer}:{item}:{drop_datetime_str}"
+                minutes_until_drop = (drop_dt_parsed - now).total_seconds() / 60.0
+                drop_dt = drop_dt_parsed
 
 
             # ── DROP_WINDOW_OPEN: drop time has arrived ──
             if minutes_until_drop <= 0:
-                # Drop time reached or past — fire webhook and disable window
+                # Drop time reached or past — fire webhook
                 self.logger.warning(
                     "DROP_WINDOW_OPEN",
                     item=item,
                     retailer=retailer,
-                    reason="Drop window is now open!",
+                    schedule_type=schedule_type,
+                    reason="Drop window is now open!" + (" (recurring — next occurrence will be computed)" if schedule_type == "recurring" else ""),
                 )
                 await self._fire_webhook_event(
                     event="DROP_WINDOW_OPEN",
                     item=item,
                     retailer=retailer,
-                    reason="Drop window is now open!",
+                    reason="Drop window is now open!" + (" (recurring)" if schedule_type == "recurring" else ""),
                 )
-                # Remove from tracking and disable so this window stops firing every 30s
+                # Clear prewarmed state so next occurrence can trigger again
                 if dw_key in self._prewarmed_windows:
                     del self._prewarmed_windows[dw_key]
+                # Recurring: do NOT disable — next _check_drop_windows will recompute next occurrence
+                if schedule_type == "recurring":
+                    continue
+                # One-shot: disable so it stops firing every 30s
                 dw["enabled"] = False
                 continue
 

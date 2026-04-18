@@ -1294,23 +1294,27 @@
 
 ---
 
-**DCT-T02**
+**DCT-T02** ✅ DONE
 - **Title:** Implement countdown computation and prewarm trigger
 - **Feature Area:** `bot/monitor/stock_monitor.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** PHASE3-T02
 - **Description:** Compute time until drop. When `time_until_drop <= prewarm_minutes`, auto-start session pre-warming. PRD Section 9.13 (DCT-2).
+- **Completed:** 2026-04-18 (via PHASE3-T02 commit ca88455)
+- **Implementation:** `minutes_until_drop` computed in `_check_drop_windows`. Auto-prewarm triggers when `0 < minutes_until_drop <= prewarm_minutes`. `DROP_WINDOW_APPROACHING` webhook fires on trigger.
 
 ---
 
-**DCT-T03**
+**DCT-T03** ✅ DONE
 - **Title:** Implement urgent PREWARM_URGENT webhook
 - **Feature Area:** `bot/notifications/webhook.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** DCT-T02, NOTIF-T01
 - **Description:** If drop time is within 5 minutes and session is not pre-warmed, fire urgent `PREWARM_URGENT` webhook. PRD Section 9.13 (DCT-4).
+- **Completed:** 2026-04-18 (via PHASE3-T02 commit ca88455)
+- **Implementation:** `PREWARM_URGENT` fires via `_fire_webhook_event` when `0 < minutes_until_drop <= _URGENT_PREWARM_MINUTES (5)` and `dw_key not in _prewarmed_windows`.
 
 ---
 

@@ -449,8 +449,27 @@
             </select>
           </div>
           <div class="config-field">
-            <label>Drop Date & Time *</label>
-            <input type="datetime-local" id="drop-datetime">
+            <label>Schedule Type</label>
+            <select id="drop-schedule-type" onchange="toggleDropScheduleFields()">
+              <option value="once">One-Shot (single event)</option>
+              <option value="recurring">Recurring (cron schedule)</option>
+            </select>
+          </div>
+          <div id="drop-once-fields">
+            <div class="config-field">
+              <label>Drop Date & Time *</label>
+              <input type="datetime-local" id="drop-datetime">
+            </div>
+          </div>
+          <div id="drop-recurring-fields" class="hidden">
+            <div class="config-field">
+              <label>Cron Expression * (min hour day month weekday)</label>
+              <input type="text" id="drop-cron-expr" placeholder="e.g. 0 10 * * 4 (10am every Thu)">
+              <div style="font-size:.75rem;color:var(--text-muted);margin-top:.25rem;">
+                Format: minute(0-59) hour(0-23) day(1-31) month(1-12) weekday(0=Mon-6=Sun).<br>
+                Examples: <code>0 9 * * 1-5</code> (9am weekdays) · <code>*/15 * * * *</code> (every 15 min) · <code>0 10 15 * *</code> (10am 15th of month)
+              </div>
+            </div>
           </div>
           <div class="config-field">
             <label>Timezone</label>
@@ -1136,6 +1155,12 @@ async function finishSetup() {
 // ── Drop Window Calendar ─────────────────────────────────────────────────────────
 let editingDropIndex = -1; // -1 means adding new, >=0 means editing existing
 
+function toggleDropScheduleFields() {
+  const schedType = document.getElementById('drop-schedule-type').value;
+  document.getElementById('drop-once-fields').classList.toggle('hidden', schedType !== 'once');
+  document.getElementById('drop-recurring-fields').classList.toggle('hidden', schedType !== 'recurring');
+}
+
 function showAddDropWindow(index = -1) {
   editingDropIndex = index;
   const modal = document.getElementById('modal-add-drop');
@@ -1145,12 +1170,15 @@ function showAddDropWindow(index = -1) {
 
   // Reset form
   document.getElementById('drop-item').value = '';
+  document.getElementById('drop-schedule-type').value = 'once';
   document.getElementById('drop-datetime').value = '';
+  document.getElementById('drop-cron-expr').value = '';
   document.getElementById('drop-retailer').value = 'target';
   document.getElementById('drop-timezone').value = 'America/Los_Angeles';
   document.getElementById('drop-prewarm').value = '15';
   document.getElementById('drop-max-qty').value = '1';
   document.getElementById('drop-enabled').checked = true;
+  toggleDropScheduleFields();
 
   if (index >= 0) {
     // Editing existing: load from displayed drop list data stored in the DOM
@@ -1160,17 +1188,24 @@ function showAddDropWindow(index = -1) {
       title.textContent = 'Edit Drop Window';
       document.getElementById('drop-item').value = d.item || '';
       document.getElementById('drop-retailer').value = d.retailer || 'target';
-      // Parse ISO datetime for datetime-local input (strip timezone offset)
-      if (d.drop_datetime) {
-        const dt = new Date(d.drop_datetime);
-        const pad = (n) => String(n).padStart(2, '0');
-        const local = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-        document.getElementById('drop-datetime').value = local;
-        document.getElementById('drop-timezone').value = d.timezone || 'UTC';
+      const schedType = d.schedule_type || 'once';
+      document.getElementById('drop-schedule-type').value = schedType;
+      if (schedType === 'recurring') {
+        document.getElementById('drop-cron-expr').value = d.cron_expr || '';
+      } else {
+        // Parse ISO datetime for datetime-local input
+        if (d.drop_datetime) {
+          const dt = new Date(d.drop_datetime);
+          const pad = (n) => String(n).padStart(2, '0');
+          const local = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+          document.getElementById('drop-datetime').value = local;
+          document.getElementById('drop-timezone').value = d.timezone || 'UTC';
+        }
       }
       document.getElementById('drop-prewarm').value = d.prewarm_minutes || 15;
       document.getElementById('drop-max-qty').value = d.max_cart_quantity || 1;
       document.getElementById('drop-enabled').checked = d.enabled !== false;
+      toggleDropScheduleFields();
     }
   } else {
     title.textContent = 'Schedule New Drop';
@@ -1197,9 +1232,13 @@ async function loadDropWindows() {
       return;
     }
     list.innerHTML = drops.map((d, i) => {
-      const dt = d.drop_datetime ? new Date(d.drop_datetime) : null;
-      const timeStr = dt ? dt.toLocaleString('en-US', { timeZone: d.timezone || 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : d.drop_datetime;
-      const countdown = getCountdown(dt);
+      const schedType = d.schedule_type || 'once';
+      const isRecurring = schedType === 'recurring';
+      const dt = (!isRecurring && d.drop_datetime) ? new Date(d.drop_datetime) : null;
+      const timeStr = isRecurring
+        ? `<span style="color:var(--accent);">🔄 ${d.cron_expr || 'recurring'}</span>`
+        : (dt ? dt.toLocaleString('en-US', { timeZone: d.timezone || 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : d.drop_datetime);
+      const countdown = !isRecurring ? getCountdown(dt) : '';
       const retailerIcon = { target: '🎯', walmart: '🛒', bestbuy: '🏪' }[d.retailer] || '🏬';
       const enabled = d.enabled !== false;
       return `
@@ -1239,30 +1278,56 @@ async function saveDropWindow() {
 
   const item = document.getElementById('drop-item').value.trim();
   const retailer = document.getElementById('drop-retailer').value;
+  const scheduleType = document.getElementById('drop-schedule-type').value;
   const datetimeLocal = document.getElementById('drop-datetime').value;
+  const cronExpr = document.getElementById('drop-cron-expr').value.trim();
   const timezone = document.getElementById('drop-timezone').value;
   const prewarm_minutes = parseInt(document.getElementById('drop-prewarm').value) || 15;
   const max_cart_quantity = parseInt(document.getElementById('drop-max-qty').value) || 1;
   const enabled = document.getElementById('drop-enabled').checked;
 
   if (!item) { err.textContent = 'Item name is required.'; err.classList.remove('hidden'); return; }
-  if (!datetimeLocal) { err.textContent = 'Drop date/time is required.'; err.classList.remove('hidden'); return; }
+  if (scheduleType === 'once' && !datetimeLocal) {
+    err.textContent = 'Drop date/time is required for one-shot drops.';
+    err.classList.remove('hidden');
+    return;
+  }
+  if (scheduleType === 'recurring' && !cronExpr) {
+    err.textContent = 'Cron expression is required for recurring drops.';
+    err.classList.remove('hidden');
+    return;
+  }
 
-  // Convert datetime-local (local time in selected timezone) to ISO-8601 with offset
-  // The datetime-local input gives us a naive local datetime.
-  // We interpret it as being in the selected timezone and convert to ISO-8601 with TZ.
-  const [datePart, timePart] = datetimeLocal.split('T');
-  const isoDatetime = `${datePart}T${timePart}:00`; // Store as naive UTC ISO for simplicity; frontend handles display TZ
+  // Basic cron validation (5 fields, numeric ranges)
+  if (scheduleType === 'recurring') {
+    const fields = cronExpr.trim().split(/\s+/);
+    if (fields.length !== 5) {
+      err.textContent = 'Cron expression must have exactly 5 fields (minute hour day month weekday).';
+      err.classList.remove('hidden');
+      return;
+    }
+  }
+
+  let isoDatetime = '';
+  if (scheduleType === 'once') {
+    const [datePart, timePart] = datetimeLocal.split('T');
+    isoDatetime = `${datePart}T${timePart}:00`;
+  }
 
   const newDrop = {
     item,
     retailer,
+    schedule_type: scheduleType,
     drop_datetime: isoDatetime,
     timezone,
     prewarm_minutes,
     max_cart_quantity,
     enabled,
   };
+
+  if (scheduleType === 'recurring') {
+    newDrop.cron_expr = cronExpr;
+  }
 
   try {
     // Load current config

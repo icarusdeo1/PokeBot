@@ -258,3 +258,124 @@ class TestPatchConfigRoute:
             # The result should be a JSONResponse with masked fields
             body = json.loads(result.body)
             assert "payment" in body
+
+
+# ── Cron validation tests (DCT-T04) ─────────────────────────────────────────────
+
+from src.bot.config import _validate_cron_field, _validate_cron_expr, _get_next_cron_occurrence
+
+
+class TestValidateCronField:
+    def test_asterisk_returns_all_values(self) -> None:
+        result = _validate_cron_field("*", 0, 59)
+        assert result is not None
+        assert 0 in result
+        assert 30 in result
+        assert 59 in result
+        assert len(result) == 60
+
+    def test_single_value(self) -> None:
+        result = _validate_cron_field("5", 0, 59)
+        assert result == [5]
+
+    def test_range(self) -> None:
+        result = _validate_cron_field("1-5", 0, 59)
+        assert result == [1, 2, 3, 4, 5]
+
+    def test_step(self) -> None:
+        result = _validate_cron_field("*/15", 0, 59)
+        assert result == [0, 15, 30, 45]
+
+    def test_step_with_range(self) -> None:
+        result = _validate_cron_field("1-30/5", 0, 59)
+        assert result == [1, 6, 11, 16, 21, 26]
+
+    def test_comma_separated(self) -> None:
+        result = _validate_cron_field("0,15,30,45", 0, 59)
+        assert result == [0, 15, 30, 45]
+
+    def test_invalid_value_returns_none(self) -> None:
+        result = _validate_cron_field("abc", 0, 59)
+        assert result is None
+
+    def test_out_of_range_returns_none(self) -> None:
+        result = _validate_cron_field("60", 0, 59)
+        assert result is None
+
+
+class TestValidateCronExpr:
+    def test_valid_simple_cron(self) -> None:
+        valid, err = _validate_cron_expr("0 10 * * 4")
+        assert valid is True
+        assert err is None
+
+    def test_valid_every_minute(self) -> None:
+        valid, err = _validate_cron_expr("* * * * *")
+        assert valid is True
+
+    def test_valid_with_step(self) -> None:
+        valid, err = _validate_cron_expr("*/15 * * * *")
+        assert valid is True
+
+    def test_empty_returns_false(self) -> None:
+        valid, err = _validate_cron_expr("")
+        assert valid is False
+
+    def test_wrong_field_count_returns_false(self) -> None:
+        valid, err = _validate_cron_expr("0 10 * *")
+        assert valid is False
+        assert "5 fields" in str(err)
+
+    def test_invalid_minute_field_returns_false(self) -> None:
+        valid, err = _validate_cron_expr("60 10 * * *")
+        assert valid is False
+
+    def test_invalid_hour_field_returns_false(self) -> None:
+        valid, err = _validate_cron_expr("0 25 * * *")
+        assert valid is False
+
+
+class TestGetNextCronOccurrence:
+    def test_next_occurrence_simple(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        UTC = ZoneInfo("UTC")
+        after = datetime(2026, 4, 1, 0, 0, tzinfo=UTC)  # Wed, no specific time
+        # "0 10 * * 4" = 10:00am every Thursday
+        next_run = _get_next_cron_occurrence("0 10 * * 4", after)
+        assert next_run.hour == 10
+        assert next_run.minute == 0
+        assert next_run.weekday() == 3  # Thursday
+
+    def test_next_occurrence_skips_past_time_same_day(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        UTC = ZoneInfo("UTC")
+        # After 11am on a Thursday — next occurrence should be next Thursday
+        after = datetime(2026, 4, 2, 11, 0, tzinfo=UTC)  # Thu Apr 2, 11am
+        next_run = _get_next_cron_occurrence("0 10 * * 4", after)
+        assert next_run.hour == 10
+        assert next_run.weekday() == 3
+
+    def test_every_15_minutes(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        UTC = ZoneInfo("UTC")
+        after = datetime(2026, 4, 1, 10, 7, tzinfo=UTC)
+        next_run = _get_next_cron_occurrence("*/15 * * * *", after)
+        assert next_run.minute == 15
+        assert next_run.hour == 10
+
+    def test_every_weekday_9am(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        UTC = ZoneInfo("UTC")
+        # Friday after 9am — next should be Monday
+        after = datetime(2026, 4, 3, 9, 1, tzinfo=UTC)  # Fri Apr 3 9:01am
+        next_run = _get_next_cron_occurrence("0 9 * * 1-5", after)
+        assert next_run.hour == 9
+        assert next_run.minute == 0
+        # weekday 0=Mon, so Mon=0, Fri=4
+        # Next weekday after Friday is Monday
+        assert next_run.weekday() == 0  # Monday
+
