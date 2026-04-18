@@ -284,13 +284,21 @@
 
 ---
 
-**EVASION-T05**
+**EVASION-T05** ✅ DONE
 - **Title:** Implement IP rate limit detection and backoff
-- **Feature Area:** `bot/evasion/`
+- **Feature Area:** `bot/evasion/rate_limit.py`
 - **Priority:** P0
 - **Complexity:** S
-- **Dependencies:** ADAPTER-T02
+- **Dependencies:** ADAPTER-T01 (note: task listed ADAPTER-T02 but module is standalone)
 - **Description:** Detect HTTP 429 or other rate limit responses from retailers. Apply exponential backoff retry. Log rate limit events. PRD Section 9.5 (EV-5).
+- **Acceptance Criteria:**
+  - [x] is_rate_limited() helper: detects HTTP 429 responses
+  - [x] get_retry_after_seconds(): extracts Retry-After header (integer or HTTP-date)
+  - [x] calculate_backoff(): exponential backoff with jitter
+  - [x] RateLimitHandler with handle_and_retry() and wrap_with_retries()
+  - [x] Logging of RATE_LIMIT_DETECTED and RATE_LIMIT_EXHAUSTED events
+  - [x] Tests: 22 passed
+  - [x] mypy: no issues
 
 ---
 
