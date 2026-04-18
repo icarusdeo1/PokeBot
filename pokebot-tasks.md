@@ -253,13 +253,22 @@
 
 ---
 
-**EVASION-T04**
+**EVASION-T04** ✅ DONE
 - **Title:** Implement jitter on check intervals
 - **Feature Area:** `bot/evasion/jitter.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T04
 - **Description:** Implement jitter module: add randomized variance ±N% (default 20%) to each stock check interval. Configurable per retailer. PRD Section 9.1 (MON-6).
+- **Acceptance Criteria:**
+  - [x] `apply_jitter(base_interval_ms, jitter_percent)` with ±N% variance
+  - [x] `jitter_interval_seconds()` wrapper for seconds input
+  - [x] `get_jitter_range()` helper returning (min, max) without randomizing
+  - [x] Configurable jitter_percent per retailer (from config)
+  - [x] Default 20% jitter when not specified
+  - [x] Validates jitter_percent 0–100 and base_interval_ms ≥ 0
+  - [x] Tests: 27 passed
+  - [x] mypy: no issues
 
 ---
 
