@@ -1187,33 +1187,56 @@
 
 ---
 
-**CAPTCHA-T03**
+**CAPTCHA-T03** ✅ DONE
 - **Title:** Implement Manual CAPTCHA Mode
 - **Feature Area:** `bot/checkout/captcha.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** CAPTCHA-T01, NOTIF-T01
 - **Description:** Implement manual CAPTCHA mode: when enabled, bot pauses on CAPTCHA challenge, fires `CAPTCHA_PENDING_MANUAL` webhook to Discord/Telegram with pause URL. Waits for operator to solve in browser. Resumes on completion or timeout (configurable, default 120s). PRD Sections 9.4 (CAP-8).
+- **Acceptance Criteria:**
+  - [x] `handle_manual_captcha()`: pause on CAPTCHA, fire CAPTCHA_PENDING_MANUAL webhook with pause URL, wait for operator solve
+  - [x] `_wait_for_captcha_resolved()`: polls until CAPTCHA iframes no longer visible (recaptcha, hcaptcha, cloudflare)
+  - [x] Webhook event fields: event="CAPTCHA_PENDING_MANUAL", captcha_type, pause_url, item, retailer
+  - [x] Configurable timeout (default 120s), returns CaptchaSolveResult with success=True (solved) or success=False (timeout)
+  - [x] Non-critical: webhook errors are caught and do not block the wait loop
+  - [x] Tests: 61 passed (25 new for manual mode)
+  - [x] mypy: no issues
 
 ---
 
-**CAPTCHA-T04**
+**CAPTCHA-T04** ✅ DONE
 - **Title:** Implement Smart CAPTCHA Routing
 - **Feature Area:** `bot/checkout/captcha.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** CAPTCHA-T02, CAPTCHA-T03
 - **Description:** Implement smart routing mode: Turnstile → auto-solve via 2Captcha (low cost, high pass rate); reCAPTCHA/hCaptcha → manual mode with operator alert. Default mode. PRD Sections 9.4 (CAP-9), 9.4.1 (smart mode table).
+- **Acceptance Criteria:**
+  - [x] `should_auto_solve()`: manual mode → never auto-solve; auto mode → always solve (if budget allows); smart mode → Turnstile auto-solve, others manual
+  - [x] `get_captcha_mode()`: returns configured mode (auto/manual/smart), defaults to smart
+  - [x] Smart mode respects budget tracker for Turnstile solves
+  - [x] Tests: 61 passed
+  - [x] mypy: no issues
 
 ---
 
-**CAPTCHA-T05**
+**CAPTCHA-T05** ✅ DONE
 - **Title:** Implement CAPTCHA Budget Tracker
 - **Feature Area:** `bot/checkout/captcha.py`
 - **Priority:** P2
 - **Complexity:** M
 - **Dependencies:** CAPTCHA-T02
 - **Description:** Implement CAPTCHA budget tracker: daily budget cap ($5 default), per-retailer cap override, solve time alert threshold (60s default). Log cumulative daily spend. Fire webhook if daily cap exceeded. PRD Sections 9.4 (CAP-7), 9.4.2 (budget tracker table).
+- **Acceptance Criteria:**
+  - [x] `CaptchaBudgetTracker`: tracks daily spend, per-retailer override, daily reset
+  - [x] `can_solve()`: returns True if under budget for retailer
+  - [x] `record_solve()`: increments daily spend counter
+  - [x] `should_alert_solve_time()`: returns True if solve time exceeds threshold
+  - [x] `emit_daily_spend()`: logs total daily spend to logger on shutdown
+  - [x] `solve_with_2captcha()`: checks budget before solving, fires CAPTCHA_BUDGET_EXCEEDED webhook if exceeded
+  - [x] Tests: 61 passed
+  - [x] mypy: no issues
 
 ---
 
