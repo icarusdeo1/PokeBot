@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PokeDrop Bot</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242838;
+      --border: #2e3347;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
+
+    /* ── Login ─────────────────────────────────────────────── */
+    #login-view {
+      display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem;
+    }
+    .login-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 2.5rem 2rem; width: 100%; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    }
+    .login-card h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: .25rem; text-align: center; }
+    .login-card .subtitle { color: var(--text-muted); font-size: .875rem; text-align: center; margin-bottom: 2rem; }
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label { display: block; font-size: .8rem; font-weight: 600; color: var(--text-muted); margin-bottom: .4rem; text-transform: uppercase; letter-spacing: .05em; }
+    .form-group input {
+      width: 100%; padding: .65rem .875rem; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 1rem; font-family: var(--font);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .form-group input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.25); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+      padding: .65rem 1.25rem; border-radius: 8px; border: none; font-size: .95rem;
+      font-weight: 600; font-family: var(--font); cursor: pointer; transition: all .15s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; width: 100%; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .login-error {
+      background: rgba(239,68,68,.15); border: 1px solid var(--danger); border-radius: 8px;
+      padding: .75rem; margin-bottom: 1rem; font-size: .875rem; color: var(--danger);
+      display: none;
+    }
+    .login-error.visible { display: block; }
+    .pokedrop-logo { font-size: 2.5rem; text-align: center; margin-bottom: .5rem; }
+
+    /* ── Setup Wizard ──────────────────────────────────────── */
+    #setup-view { display: none; }
+    .setup-step { display: none; }
+    .setup-step.active { display: block; }
+    .setup-progress { display: flex; gap: .5rem; margin-bottom: 2rem; justify-content: center; }
+    .progress-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+    .progress-dot.active { background: var(--accent); }
+    .progress-dot.done { background: var(--success); }
+
+    /* ── Main Dashboard ────────────────────────────────────── */
+    #dashboard-view { display: none; min-height: 100vh; }
+    .dash-header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem; height: 56px; display: flex; align-items: center; gap: 1rem;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .dash-logo { font-weight: 700; font-size: 1.1rem; }
+    .daemon-badge {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .25rem .65rem; border-radius: 20px; font-size: .75rem; font-weight: 600;
+    }
+    .daemon-badge.online { background: rgba(34,197,94,.15); color: var(--success); }
+    .daemon-badge.offline { background: rgba(239,68,68,.15); color: var(--danger); }
+    .daemon-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .header-spacer { flex: 1; }
+    .dash-nav { display: flex; gap: .25rem; }
+    .nav-btn {
+      padding: .4rem .875rem; border-radius: 6px; background: transparent; border: none;
+      color: var(--text-muted); font-size: .875rem; font-weight: 500; cursor: pointer;
+      transition: all .15s; font-family: var(--font);
+    }
+    .nav-btn:hover { background: var(--surface2); color: var(--text); }
+    .nav-btn.active { background: var(--accent); color: #fff; }
+    .dash-body { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+
+    /* ── Panels ────────────────────────────────────────────── */
+    .panel {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 1.25rem; margin-bottom: 1.25rem;
+    }
+    .panel-title { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-bottom: 1rem; }
+
+    /* ── Status Cards ─────────────────────────────────────── */
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+    .status-card { background: var(--surface2); border-radius: 8px; padding: 1rem; }
+    .status-card-label { font-size: .75rem; color: var(--text-muted); margin-bottom: .5rem; }
+    .status-card-value { font-size: 1.5rem; font-weight: 700; }
+    .session-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: .4rem; }
+    .session-dot.green { background: var(--success); }
+    .session-dot.yellow { background: var(--warning); }
+    .session-dot.red { background: var(--danger); }
+
+    /* ── Event Log ─────────────────────────────────────────── */
+    #event-log {
+      height: 300px; overflow-y: auto; font-size: .8rem; font-family: 'SF Mono', Consolas, monospace;
+      background: var(--bg); border-radius: 8px; padding: .75rem;
+    }
+    .event-row { padding: .2rem 0; border-bottom: 1px solid var(--border); }
+    .event-row:last-child { border-bottom: none; }
+    .event-ts { color: var(--text-muted); margin-right: .5rem; }
+    .event-type { font-weight: 600; margin-right: .5rem; }
+    .event-item { color: var(--text-muted); }
+
+    /* ── Settings ─────────────────────────────────────────── */
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .settings-section-title { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); margin-bottom: .75rem; }
+    .config-field { margin-bottom: 1rem; }
+    .config-field label { display: block; font-size: .8rem; color: var(--text-muted); margin-bottom: .25rem; }
+    .config-field input, .config-field select {
+      width: 100%; padding: .5rem .75rem; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: .9rem; font-family: var(--font);
+    }
+    .retailer-card { background: var(--surface2); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .retailer-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .75rem; }
+    .retailer-name { font-weight: 700; font-size: 1rem; }
+
+    /* ── Buttons ──────────────────────────────────────────── */
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-success:hover { background: #16a34a; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-sm { padding: .35rem .75rem; font-size: .8rem; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Error/Offline Banner ─────────────────────────────── */
+    #offline-banner {
+      display: none; background: rgba(239,68,68,.15); border-bottom: 1px solid var(--danger);
+      padding: .75rem 1.5rem; text-align: center; font-size: .875rem; color: var(--danger);
+      font-weight: 600;
+    }
+    #offline-banner.visible { display: block; }
+    #restart-btn { margin-left: 1rem; }
+
+    /* ── Loader ───────────────────────────────────────────── */
+    .spinner {
+      display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Footer ───────────────────────────────────────────── */
+    #footer { text-align: center; padding: 1rem; font-size: .75rem; color: var(--text-muted); }
+
+    /* ── Hidden ────────────────────────────────────────────── */
+    .hidden { display: none !important; }
+
+    /* ── Section headers ───────────────────────────────────── */
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .section-title { font-size: 1.1rem; font-weight: 700; }
+
+    /* ── CAPTCHA Panel ─────────────────────────────────────── */
+    .captcha-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; text-align: center; }
+    .captcha-stat .val { font-size: 1.75rem; font-weight: 700; }
+    .captcha-stat .lbl { font-size: .75rem; color: var(--text-muted); }
+
+    /* ── Drop Calendar ────────────────────────────────────── */
+    .drop-list { display: flex; flex-direction: column; gap: .75rem; }
+    .drop-item { background: var(--surface2); border-radius: 8px; padding: 1rem; display: flex; justify-content: space-between; align-items: center; }
+    .drop-item .item-name { font-weight: 700; }
+    .drop-item .drop-time { color: var(--text-muted); font-size: .875rem; }
+    .countdown { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+
+    /* ── Dryrun Terminal ──────────────────────────────────── */
+    #dryrun-output {
+      background: #0a0a0a; border-radius: 8px; padding: 1rem; font-family: 'SF Mono', Consolas, monospace;
+      font-size: .8rem; color: #00ff00; min-height: 200px; white-space: pre-wrap;
+      overflow-y: auto; max-height: 400px;
+    }
+    #dryrun-output .error-line { color: #ff6b6b; }
+    #dryrun-output .warn-line { color: #ffd93d; }
+    #dryrun-output .info-line { color: #6bcbff; }
+  </style>
+</head>
+<body>
+
+<!-- ── Offline Banner ──────────────────────────────────── -->
+<div id="offline-banner">
+  Daemon Offline — restart may be required
+  <button id="restart-btn" class="btn btn-danger btn-sm" onclick="restartDaemon()">Restart Daemon</button>
+</div>
+
+<!-- ── Login Screen ───────────────────────────────────── -->
+<div id="login-view">
+  <div class="login-card">
+    <div class="pokedrop-logo">🪶</div>
+    <h1>PokeDrop Bot</h1>
+    <p class="subtitle" id="login-subtitle">Enter your PIN to continue</p>
+    <div id="login-error" class="login-error"></div>
+    <form id="login-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label for="pin-input">PIN</label>
+        <input type="password" id="pin-input" placeholder="••••••" maxlength="20" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary" id="login-btn">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<!-- ── Setup Wizard ───────────────────────────────────── -->
+<div id="setup-view">
+  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem;">
+    <div class="login-card" style="max-width:480px;">
+      <div class="pokedrop-logo">🪶</div>
+      <h1>Welcome to PokeDrop</h1>
+      <p class="subtitle">Set up your account to get started</p>
+      <div class="setup-progress">
+        <div class="progress-dot active" id="dot-1"></div>
+        <div class="progress-dot" id="dot-2"></div>
+        <div class="progress-dot" id="dot-3"></div>
+        <div class="progress-dot" id="dot-4"></div>
+      </div>
+      <!-- Step 1: Set PIN -->
+      <div class="setup-step active" id="setup-step-1">
+        <h2 style="margin-bottom:1rem;">Set Your PIN</h2>
+        <div class="form-group">
+          <label>New PIN (min 6 digits)</label>
+          <input type="password" id="setup-pin" placeholder="••••••" minlength="6" maxlength="20">
+        </div>
+        <div class="form-group">
+          <label>Confirm PIN</label>
+          <input type="password" id="setup-pin-confirm" placeholder="••••••" minlength="6" maxlength="20">
+        </div>
+        <div id="setup-pin-error" class="login-error"></div>
+        <button class="btn btn-primary" onclick="setupStep1()">Continue →</button>
+      </div>
+      <!-- Step 2: Retailer Account -->
+      <div class="setup-step" id="setup-step-2">
+        <h2 style="margin-bottom:1rem;">Add Retailer Account</h2>
+        <div class="form-group">
+          <label>Retailer</label>
+          <select id="setup-retailer">
+            <option value="target">Target</option>
+            <option value="walmart">Walmart</option>
+            <option value="bestbuy">Best Buy</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Username / Email</label>
+          <input type="text" id="setup-username" placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="setup-password" placeholder="••••••">
+        </div>
+        <button class="btn btn-secondary" onclick="showSetupStep(1)">← Back</button>
+        <button class="btn btn-primary" style="margin-left:.5rem;" onclick="setupStep2()">Continue →</button>
+      </div>
+      <!-- Step 3: Shipping -->
+      <div class="setup-step" id="setup-step-3">
+        <h2 style="margin-bottom:1rem;">Shipping Info</h2>
+        <div class="form-group"><label>Full Name</label><input type="text" id="setup-ship-name"></div>
+        <div class="form-group"><label>Address Line 1</label><input type="text" id="setup-ship-addr"></div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:.75rem;">
+          <div class="form-group"><label>City</label><input type="text" id="setup-ship-city"></div>
+          <div class="form-group"><label>State</label><input type="text" id="setup-ship-state" maxlength="2"></div>
+          <div class="form-group"><label>ZIP</label><input type="text" id="setup-ship-zip"></div>
+        </div>
+        <button class="btn btn-secondary" onclick="showSetupStep(2)">← Back</button>
+        <button class="btn btn-primary" style="margin-left:.5rem;" onclick="showSetupStep(4)">Continue →</button>
+      </div>
+      <!-- Step 4: Done -->
+      <div class="setup-step" id="setup-step-4">
+        <h2 style="margin-bottom:1rem;">You're All Set! 🎉</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">Your PokeDrop Bot is ready. Configure your monitored items in Settings.</p>
+        <button class="btn btn-primary" onclick="finishSetup()">Go to Dashboard →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main Dashboard ──────────────────────────────────── -->
+<div id="dashboard-view">
+  <div class="dash-header">
+    <span class="dash-logo">🪶 PokeDrop</span>
+    <span class="daemon-badge offline" id="daemon-badge">Checking...</span>
+    <div class="header-spacer"></div>
+    <div class="dash-nav">
+      <button class="nav-btn active" data-view="status" onclick="showView('status')">Status</button>
+      <button class="nav-btn" data-view="events" onclick="showView('events')">Events</button>
+      <button class="nav-btn" data-view="calendar" onclick="showView('calendar')">Calendar</button>
+      <button class="nav-btn" data-view="settings" onclick="showView('settings')">Settings</button>
+      <button class="nav-btn" data-view="captcha" onclick="showView('captcha')">CAPTCHA</button>
+      <button class="nav-btn" data-view="accounts" onclick="showView('accounts')">Accounts</button>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="handleLogout()">Logout</button>
+  </div>
+
+  <div class="dash-body">
+
+    <!-- ── Status View ───────────────────────── -->
+    <div id="view-status" class="view-section">
+      <div class="section-header">
+        <h2 class="section-title">System Status</h2>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+          <select id="sel-retailer" onchange="onRetailerChange()" style="padding:.4rem;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:.875rem;">
+            <option value="">All Retailers</option>
+          </select>
+          <select id="sel-item" style="padding:.4rem;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:.875rem;">
+            <option value="">All Items</option>
+          </select>
+          <button class="btn btn-success btn-sm" id="btn-start" onclick="startMonitor()">▶ Start Monitoring</button>
+          <button class="btn btn-danger btn-sm" id="btn-stop" onclick="stopMonitor()">■ Stop Monitoring</button>
+          <button class="btn btn-secondary btn-sm" onclick="runDryrun()">⚡ Dry Run</button>
+        </div>
+      </div>
+      <div class="status-grid" style="margin-bottom:1.25rem;">
+        <div class="status-card">
+          <div class="status-card-label">Active Items</div>
+          <div class="status-card-value" id="stat-active-items">—</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card-label">Uptime</div>
+          <div class="status-card-value" id="stat-uptime">—</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card-label">Last Event</div>
+          <div class="status-card-value" id="stat-last-event" style="font-size:1rem;">—</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card-label">Session Health</div>
+          <div id="stat-session-health"></div>
+        </div>
+      </div>
+
+      <!-- Session health row -->
+      <div class="panel">
+        <div class="panel-title">Session Health</div>
+        <div id="session-health-detail" style="display:flex;gap:1rem;flex-wrap:wrap;"></div>
+      </div>
+    </div>
+
+    <!-- ── Events View ────────────────────────── -->
+    <div id="view-events" class="view-section hidden">
+      <div class="section-header">
+        <h2 class="section-title">Live Event Log</h2>
+        <div style="display:flex;gap:.5rem;align-items:center;">
+          <select id="filter-retailer" onchange="applyEventFilters()" style="padding:.4rem;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);">
+            <option value="">All Retailers</option>
+            <option value="target">Target</option>
+            <option value="walmart">Walmart</option>
+            <option value="bestbuy">Best Buy</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="applyEventFilters()">Filter</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div id="event-log">
+          <div style="color:var(--text-muted);padding:1rem;text-align:center;">Connecting to live feed...</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Event History</div>
+        <div id="event-history" style="max-height:300px;overflow-y:auto;"></div>
+      </div>
+    </div>
+
+    <!-- ── Dryrun Output ─────────────────────── -->
+    <div id="view-dryrun" class="view-section hidden">
+      <div class="section-header">
+        <h2 class="section-title">Dry Run Output</h2>
+        <button class="btn btn-secondary btn-sm" onclick="showView('status')">Close</button>
+      </div>
+      <div class="panel">
+        <div id="dryrun-output">Press "Run Dry Run" to start...</div>
+      </div>
+    </div>
+
+    <!-- ── Calendar View ─────────────────────── -->
+    <div id="view-calendar" class="view-section hidden">
+      <div class="section-header">
+        <h2 class="section-title">Drop Window Calendar</h2>
+        <button class="btn btn-primary btn-sm" onclick="showAddDropWindow()">+ Add Drop</button>
+      </div>
+      <div class="panel">
+        <div class="drop-list" id="drop-list">
+          <div style="color:var(--text-muted);padding:1rem;text-align:center;">No drop windows configured.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Settings View ─────────────────────── -->
+    <div id="view-settings" class="view-section hidden">
+      <div class="section-header">
+        <h2 class="section-title">Settings</h2>
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">💾 Save Changes</button>
+      </div>
+      <div class="settings-grid">
+        <div>
+          <div class="panel">
+            <div class="settings-section-title">Retailer Accounts</div>
+            <div id="settings-retailers"></div>
+          </div>
+          <div class="panel">
+            <div class="settings-section-title">CAPTCHA Mode</div>
+            <div class="config-field">
+              <label>Mode</label>
+              <select id="cfg-captcha-mode">
+                <option value="auto">Auto (2Captcha)</option>
+                <option value="manual">Manual</option>
+                <option value="smart">Smart Routing</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label>Daily Budget Cap ($)</label>
+              <input type="number" id="cfg-captcha-budget" value="5" min="0" step="0.5">
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="panel">
+            <div class="settings-section-title">Shipping</div>
+            <div class="config-field"><label>Full Name</label><input type="text" id="cfg-ship-name"></div>
+            <div class="config-field"><label>Address</label><input type="text" id="cfg-ship-addr"></div>
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:.5rem;">
+              <div class="config-field"><label>City</label><input type="text" id="cfg-ship-city"></div>
+              <div class="config-field"><label>State</label><input type="text" id="cfg-ship-state"></div>
+              <div class="config-field"><label>ZIP</label><input type="text" id="cfg-ship-zip"></div>
+            </div>
+            <div class="config-field"><label>Phone</label><input type="tel" id="cfg-ship-phone"></div>
+            <div class="config-field"><label>Email</label><input type="email" id="cfg-ship-email"></div>
+          </div>
+          <div class="panel">
+            <div class="settings-section-title">Monitored Items</div>
+            <div id="settings-items"></div>
+            <button class="btn btn-secondary btn-sm" style="margin-top:.75rem;" onclick="addItem()">+ Add Item</button>
+          </div>
+        </div>
+      </div>
+      <div id="settings-saved" style="display:none;color:var(--success);margin-top:1rem;font-weight:600;">✓ Settings saved successfully!</div>
+    </div>
+
+    <!-- ── CAPTCHA Panel ───────────────────────── -->
+    <div id="view-captcha" class="view-section hidden">
+      <div class="section-header"><h2 class="section-title">CAPTCHA Status</h2></div>
+      <div class="panel">
+        <div class="captcha-summary">
+          <div class="captcha-stat">
+            <div class="val" id="captcha-mode">Smart</div>
+            <div class="lbl">Current Mode</div>
+          </div>
+          <div class="captcha-stat">
+            <div class="val" id="captcha-spend">$0.00</div>
+            <div class="lbl">Today's Spend</div>
+          </div>
+          <div class="captcha-stat">
+            <div class="val" id="captcha-budget">$5.00</div>
+            <div class="lbl">Daily Budget</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Per-Retailer CAPTCHA Spend</div>
+        <div id="captcha-retailer-breakdown"></div>
+      </div>
+    </div>
+
+    <!-- ── Accounts Panel ─────────────────────── -->
+    <div id="view-accounts" class="view-section hidden">
+      <div class="section-header">
+        <h2 class="section-title">Multi-Account Manager</h2>
+        <button class="btn btn-primary btn-sm">+ Add Account</button>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Session Status per Retailer</div>
+        <div id="accounts-list"></div>
+      </div>
+    </div>
+
+  </div><!-- /dash-body -->
+  <div id="footer">PokeDrop Bot v1.0 &mdash; Running on <span id="runtime-version">—</span></div>
+</div><!-- /dashboard-view -->
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentView = 'status';
+let sessionCookie = getCookie('pokedrop_session') || null;
+let isOperator = false;
+let eventSource = null;
+let lastEventAt = null;
+let uptimeSeconds = 0;
+let monitorItems = [];  // items loaded from config for selector
+let monitorRetailers = {};  // retailers loaded from config for selector
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+function eraseCookie(name) { document.cookie = name + '=; Max-Age=0; path=/'; }
+
+async function api(path, options = {}) {
+  const opts = {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  };
+  const res = await fetch(path, opts);
+  if (res.status === 401 || res.status === 403) {
+    showLogin();
+    throw new Error('Auth required');
+  }
+  return res;
+}
+
+// ── Auth ────────────────────────────────────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const res = await api('/api/status');
+    if (res.ok) {
+      const data = await res.json();
+      isOperator = data.role === 'operator';
+      showDashboard(data);
+      return;
+    }
+  } catch (_) {}
+  showLogin();
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Signing in...';
+  errEl.classList.remove('visible');
+  try {
+    const pin = document.getElementById('pin-input').value;
+    const fd = new FormData();
+    fd.append('pin', pin);
+    const res = await fetch('/login', { method: 'POST', body: fd, credentials: 'include' });
+    if (res.redirected || res.ok) {
+      sessionCookie = getCookie('pokedrop_session');
+      const statusRes = await api('/api/status');
+      if (statusRes.ok) {
+        const data = await statusRes.json();
+        showDashboard(data);
+      }
+    } else {
+      const body = await res.json().catch(() => ({}));
+      errEl.textContent = body.detail || 'Invalid PIN. Please try again.';
+      errEl.classList.add('visible');
+    }
+  } catch (err) {
+    errEl.textContent = 'Connection error. Is the daemon running?';
+    errEl.classList.add('visible');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+async function handleLogout() {
+  eraseCookie('pokedrop_session');
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  showLogin();
+}
+
+// ── UI ─────────────────────────────────────────────────────────────────────────
+function showLogin() {
+  document.getElementById('login-view').style.display = 'flex';
+  document.getElementById('setup-view').style.display = 'none';
+  document.getElementById('dashboard-view').style.display = 'none';
+}
+
+function showDashboard(statusData) {
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('setup-view').style.display = 'none';
+  document.getElementById('dashboard-view').style.display = 'block';
+  updateStatus(statusData);
+  connectEventStream();
+  startHealthPoll();
+  loadMonitorSelectors();
+
+  // Viewer role: hide operator-only UI elements
+  if (!isOperator) {
+    document.getElementById('btn-start')?.remove();
+    document.getElementById('btn-stop')?.remove();
+    const dryrunBtn = [...document.querySelectorAll('.btn-secondary')].find(b => b.textContent.includes('Dry Run'));
+    if (dryrunBtn) dryrunBtn.remove();
+    const settingsNav = document.querySelector('.nav-btn[data-view="settings"]');
+    if (settingsNav) settingsNav.remove();
+    const calendarNav = document.querySelector('.nav-btn[data-view="calendar"]');
+    if (calendarNav) calendarNav.remove();
+    const captchaNav = document.querySelector('.nav-btn[data-view="captcha"]');
+    if (captchaNav) captchaNav.remove();
+    const accountsNav = document.querySelector('.nav-btn[data-view="accounts"]');
+    if (accountsNav) accountsNav.remove();
+  }
+}
+
+function showView(name) {
+  // Viewer role: hide write-only views
+  if (!isOperator && ['settings', 'calendar'].includes(name)) {
+    alert('Viewer role cannot access this page.');
+    return;
+  }
+  document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + name).classList.remove('hidden');
+  document.querySelector('.nav-btn[data-view="' + name + '"]')?.classList.add('active');
+  currentView = name;
+  if (name === 'events') loadEventHistory();
+  if (name === 'settings') loadSettings();
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────────
+function updateStatus(data) {
+  const badge = document.getElementById('daemon-badge');
+  badge.textContent = data.status === 'online' ? 'Online' : 'Offline';
+  badge.className = 'daemon-badge ' + (data.status === 'online' ? 'online' : 'offline');
+
+  // Offline banner
+  const banner = document.getElementById('offline-banner');
+  banner.className = data.status === 'online' ? '' : 'visible';
+
+  document.getElementById('stat-active-items').textContent =
+    Array.isArray(data.active_items) ? data.active_items.length : '0';
+  document.getElementById('stat-uptime').textContent = formatUptime(data.uptime_seconds || 0);
+  document.getElementById('stat-last-event').textContent =
+    data.last_event_at ? data.last_event_at.replace('T', ' ').slice(0, 16) : '—';
+
+  // Session health
+  const sh = data.session_health || {};
+  const shKeys = Object.keys(sh);
+  const shDetail = document.getElementById('session-health-detail');
+  shDetail.innerHTML = shKeys.length
+    ? shKeys.map(k => `<div style="display:flex;align-items:center;gap:.5rem;padding:.5rem;background:var(--surface2);border-radius:6px;">
+        <span class="session-dot ${sh[k]}"></span>
+        <strong>${k}</strong>: ${sh[k]}
+      </div>`).join('')
+    : '<span style="color:var(--text-muted)">No sessions tracked yet.</span>';
+}
+
+function formatUptime(seconds) {
+  if (!seconds || seconds < 0) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+// ── Event Stream (SSE) ──────────────────────────────────────────────────────────
+function connectEventStream() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/events/stream');
+  eventSource.onmessage = (e) => {
+    try {
+      const ev = JSON.parse(e.data);
+      appendEventRow(ev);
+    } catch (_) {}
+  };
+  eventSource.onerror = () => { /* silently reconnect */ };
+}
+
+function appendEventRow(ev) {
+  const log = document.getElementById('event-log');
+  if (!log) return;
+  const ts = ev.timestamp ? ev.timestamp.replace('T', ' ').slice(0, 19) : '';
+  const row = document.createElement('div');
+  row.className = 'event-row';
+  row.innerHTML = `<span class="event-ts">${ts}</span><span class="event-type">${ev.event || ''}</span>${ev.item ? `<span class="event-item">${ev.item}</span>` : ''}`;
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── Monitor Control ─────────────────────────────────────────────────────────────
+async function loadMonitorSelectors() {
+  // Load config to populate retailer/item selectors in the status view
+  try {
+    const res = await api('/api/config');
+    if (!res.ok) return;
+    const cfg = await res.json();
+    monitorRetailers = cfg.retailers || {};
+    monitorItems = cfg.items || [];
+
+    // Populate retailer selector
+    const retailerSel = document.getElementById('sel-retailer');
+    retailerSel.innerHTML = '<option value="">All Retailers</option>';
+    Object.keys(monitorRetailers).forEach(name => {
+      if (monitorRetailers[name].enabled) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        retailerSel.appendChild(opt);
+      }
+    });
+
+    // Initial item population (all items)
+    populateItemSelector('');
+  } catch (_) {}
+}
+
+function onRetailerChange() {
+  const retailer = document.getElementById('sel-retailer').value;
+  populateItemSelector(retailer);
+}
+
+function populateItemSelector(retailer) {
+  const itemSel = document.getElementById('sel-item');
+  itemSel.innerHTML = '<option value="">All Items</option>';
+  const filtered = retailer
+    ? monitorItems.filter(i => !retailer || i.retailer === retailer)
+    : monitorItems;
+  filtered.forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = item.name;
+    opt.textContent = item.name;
+    itemSel.appendChild(opt);
+  });
+}
+
+async function startMonitor() {
+  const retailer = document.getElementById('sel-retailer').value;
+  const item = document.getElementById('sel-item').value;
+  const msg = item
+    ? `Start monitoring "${item}"${retailer ? ' on ' + retailer : ''}?`
+    : retailer
+    ? `Start monitoring all items on ${retailer}?`
+    : 'Start monitoring all configured items?';
+  if (!confirm(msg)) return;
+  const btn = document.getElementById('btn-start');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    await api('/api/monitor/start', { method: 'POST' });
+    setTimeout(refreshStatus, 1000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Start Monitoring';
+  }
+}
+
+async function stopMonitor() {
+  if (!confirm('Stop all monitoring?')) return;
+  const btn = document.getElementById('btn-stop');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    await api('/api/monitor/stop', { method: 'POST' });
+    setTimeout(refreshStatus, 1000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '■ Stop Monitoring';
+  }
+}
+
+async function restartDaemon() {
+  if (!confirm('Restart the daemon? The dashboard will be unavailable briefly.')) return;
+  try {
+    await api('/api/daemon/restart', { method: 'POST' });
+    alert('Restart command sent. The daemon will restart shortly.');
+  } catch (err) { alert('Failed to restart daemon.'); }
+}
+
+// ── Dry Run ─────────────────────────────────────────────────────────────────────
+async function runDryrun() {
+  showView('dryrun');
+  document.getElementById('dryrun-output').innerHTML = '<span style="color:var(--text-muted)">Starting dry run...</span>\n';
+  try {
+    const res = await api('/api/dryrun', { method: 'POST' });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const out = document.getElementById('dryrun-output');
+    out.innerHTML = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value);
+      // SSE: each line is "data: {...}\n\n"
+      for (const line of text.split('\n')) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'output') {
+              out.textContent += (data.text || data.event || '') + '\n';
+            } else if (data.type === 'done') {
+              out.textContent += `\n[DONE] Status: ${data.status}\n`;
+            }
+          } catch (_) {}
+        }
+      }
+      out.scrollTop = out.scrollHeight;
+    }
+  } catch (err) {
+    out.textContent += `\n[ERROR] ${err.message}\n`;
+  }
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const res = await api('/api/config');
+    const cfg = await res.json();
+    // Fill form fields with masked config values
+    document.getElementById('cfg-captcha-mode').value = cfg.captcha?.mode || 'smart';
+    document.getElementById('cfg-captcha-budget').value = cfg.captcha?.daily_budget || 5;
+    // Shipping fields
+    const ship = cfg.shipping || {};
+    document.getElementById('cfg-ship-name').value = ship.full_name || '';
+    document.getElementById('cfg-ship-addr').value = ship.address_line1 || '';
+    document.getElementById('cfg-ship-city').value = ship.city || '';
+    document.getElementById('cfg-ship-state').value = ship.state || '';
+    document.getElementById('cfg-ship-zip').value = ship.zip_code || '';
+    document.getElementById('cfg-ship-phone').value = ship.phone || '';
+    document.getElementById('cfg-ship-email').value = ship.email || '';
+    // Retailer accounts
+    renderRetailerAccounts(cfg.retailers || {});
+    renderItems(cfg.items || []);
+  } catch (err) { console.error('Failed to load settings:', err); }
+}
+
+function renderRetailerAccounts(retailers) {
+  const el = document.getElementById('settings-retailers');
+  el.innerHTML = Object.entries(retailers).map(([name, cfg]) => `
+    <div class="retailer-card">
+      <div class="retailer-card-header">
+        <span class="retailer-name">${name.charAt(0).toUpperCase() + name.slice(1)}</span>
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;">
+          <input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="toggleRetailer('${name}', this.checked)"> Enabled
+        </label>
+      </div>
+      <div class="form-group" style="margin-bottom:.5rem;">
+        <label>Username</label>
+        <input type="text" value="${cfg.username || ''}" id="retailer-${name}-user">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label>Password</label>
+        <input type="password" placeholder="${cfg.password ? '••••••••' : ''}" id="retailer-${name}-pass">
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderItems(items) {
+  const el = document.getElementById('settings-items');
+  el.innerHTML = items.map((item, i) => `
+    <div style="display:flex;gap:.5rem;margin-bottom:.5rem;align-items:center;">
+      <input type="text" value="${item.name || ''}" placeholder="Item name" style="flex:2;padding:.4rem;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);">
+      <input type="text" value="${item.sku || ''}" placeholder="SKU" style="flex:1;padding:.4rem;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);">
+      <input type="text" value="${item.url || ''}" placeholder="URL" style="flex:2;padding:.4rem;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);">
+      <button class="btn btn-danger btn-sm" onclick="removeItem(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+function addItem() {
+  const el = document.getElementById('settings-items');
+  const i = el.children.length;
+  const div = document.createElement('div');
+  div.style = 'display:flex;gap:.5rem;margin-bottom:.5rem;align-items:center;';
+  div.innerHTML = `
+    <input type="text" placeholder="Item name" style="flex:2;padding:.4rem;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);">
+    <input type="text" placeholder="SKU" style="flex:1;padding:.4rem;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);">
+    <input type="text" placeholder="URL" style="flex:2;padding:.4rem;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text);">
+    <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✕</button>`;
+  el.appendChild(div);
+}
+
+function removeItem(i) { /* basic */ }
+
+async function saveSettings() {
+  // Collect form data and PATCH /api/config
+  const payload = {
+    captcha: {
+      mode: document.getElementById('cfg-captcha-mode').value,
+      daily_budget: parseFloat(document.getElementById('cfg-captcha-budget').value),
+    },
+    shipping: {
+      full_name: document.getElementById('cfg-ship-name').value,
+      address_line1: document.getElementById('cfg-ship-addr').value,
+      city: document.getElementById('cfg-ship-city').value,
+      state: document.getElementById('cfg-ship-state').value,
+      zip_code: document.getElementById('cfg-ship-zip').value,
+      phone: document.getElementById('cfg-ship-phone').value,
+      email: document.getElementById('cfg-ship-email').value,
+    },
+  };
+  try {
+    const res = await api('/api/config', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    const el = document.getElementById('settings-saved');
+    el.style.display = res.ok ? 'block' : 'none';
+    if (res.ok) setTimeout(() => el.style.display = 'none', 3000);
+  } catch (err) {
+    console.error('Failed to save settings:', err);
+  }
+}
+
+async function toggleRetailer(name, enabled) {
+  // Quick toggle via PATCH
+  await api('/api/config', {
+    method: 'PATCH',
+    body: JSON.stringify({ retailers: { [name]: { enabled } } }),
+  });
+}
+
+// ── Events ──────────────────────────────────────────────────────────────────────
+async function loadEventHistory() {
+  try {
+    const res = await api('/api/events/history?limit=100');
+    const data = await res.json();
+    const el = document.getElementById('event-history');
+    if (!data.events || !data.events.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;text-align:center;">No events recorded.</div>';
+      return;
+    }
+    el.innerHTML = data.events.map(ev => `
+      <div class="event-row">
+        <span class="event-ts">${(ev.timestamp || '').replace('T', ' ').slice(0, 19)}</span>
+        <span class="event-type">${ev.event || ''}</span>
+        <span class="event-item">${ev.item || ''}</span>
+        <span style="margin-left:auto;color:var(--text-muted)">${ev.retailer || ''}</span>
+      </div>`).join('');
+  } catch (err) { console.error('Failed to load history:', err); }
+}
+
+function applyEventFilters() {
+  loadEventHistory();
+}
+
+// ── Health Polling ──────────────────────────────────────────────────────────────
+let healthInterval = null;
+function startHealthPoll() {
+  if (healthInterval) clearInterval(healthInterval);
+  healthInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/health');
+      if (res.ok) {
+        const data = await res.json();
+        updateStatus(data);
+      } else {
+        document.getElementById('offline-banner').className = 'visible';
+        document.getElementById('daemon-badge').textContent = 'Offline';
+        document.getElementById('daemon-badge').className = 'daemon-badge offline';
+      }
+    } catch (_) {
+      document.getElementById('offline-banner').className = 'visible';
+    }
+  }, 5000);
+}
+
+async function refreshStatus() {
+  try {
+    const res = await api('/api/status');
+    if (res.ok) updateStatus(await res.json());
+  } catch (_) {}
+}
+
+// ── Setup Wizard ────────────────────────────────────────────────────────────────
+let setupPin = '';
+
+function showSetupStep(n) {
+  document.querySelectorAll('.setup-step').forEach((el, i) => {
+    el.classList.toggle('active', i + 1 === n);
+  });
+  document.querySelectorAll('.progress-dot').forEach((el, i) => {
+    el.classList.remove('active', 'done');
+    if (i + 1 < n) el.classList.add('done');
+    if (i + 1 === n) el.classList.add('active');
+  });
+}
+
+async function setupStep1() {
+  const pin = document.getElementById('setup-pin').value;
+  const pin2 = document.getElementById('setup-pin-confirm').value;
+  const err = document.getElementById('setup-pin-error');
+  if (pin.length < 6) { err.textContent = 'PIN must be at least 6 digits.'; err.classList.add('visible'); return; }
+  if (pin !== pin2) { err.textContent = 'PINs do not match.'; err.classList.add('visible'); return; }
+  err.classList.remove('visible');
+  setupPin = pin;
+  try {
+    await fetch('/api/auth/setup-pin', {
+      method: 'POST',
+      body: JSON.stringify({ pin }),
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (_) {}
+  showSetupStep(2);
+}
+
+async function setupStep2() {
+  // Save retailer account via PATCH config
+  const retailer = document.getElementById('setup-retailer').value;
+  const username = document.getElementById('setup-username').value;
+  const password = document.getElementById('setup-password').value;
+  if (!username || !password) return;
+  try {
+    await api('/api/config', {
+      method: 'PATCH',
+      body: JSON.stringify({ retailers: { [retailer]: { enabled: true, username, password } } }),
+    });
+  } catch (_) {}
+  showSetupStep(3);
+}
+
+async function finishSetup() {
+  // Save shipping via PATCH
+  const ship = {
+    full_name: document.getElementById('setup-ship-name').value,
+    address_line1: document.getElementById('setup-ship-addr').value,
+    city: document.getElementById('setup-ship-city').value,
+    state: document.getElementById('setup-ship-state').value,
+    zip_code: document.getElementById('setup-ship-zip').value,
+  };
+  try {
+    await api('/api/config', { method: 'PATCH', body: JSON.stringify({ shipping: ship }) });
+  } catch (_) {}
+  // Log in with the PIN we just set
+  const fd = new FormData();
+  fd.append('pin', setupPin);
+  const res = await fetch('/login', { method: 'POST', body: fd, credentials: 'include' });
+  if (res.ok || res.redirected) {
+    sessionCookie = getCookie('pokedrop_session');
+    const statusRes = await api('/api/status');
+    if (statusRes.ok) showDashboard(await statusRes.json());
+  }
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  checkAuth();
+});
+</script>
+</body>
+</html>

@@ -21,13 +21,13 @@ if TYPE_CHECKING:
 
 from fastapi import Depends  # noqa: E402
 
-from src.dashboard.auth import UserRole, require_auth
+from src.dashboard.auth import DashboardSession, UserRole, require_auth
 
 # ── Route ──────────────────────────────────────────────────────────────────────
 
 
 async def status_route(
-    _: Any = Depends(require_auth(UserRole.VIEWER)),
+    session: DashboardSession = Depends(require_auth(UserRole.VIEWER)),
 ) -> dict[str, Any]:
     """Return daemon state from state.db.
 
@@ -105,6 +105,7 @@ async def status_route(
         "session_health": session_health,
         "last_event_at": last_event_at,
         "uptime_seconds": uptime_seconds,
+        "role": session.role.value,
     }
 
 
