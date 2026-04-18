@@ -139,7 +139,7 @@
 
 ---
 
-**ADAPTER-T01**
+**ADAPTER-T01** ✅ DONE
 - **Title:** Implement RetailerAdapter base class
 - **Feature Area:** `bot/monitor/retailers/base.py`
 - **Priority:** P0
@@ -229,7 +229,7 @@
 
 ---
 
-**ADAPTER-T05**
+**ADAPTER-T05** ✅ DONE
 - **Title:** Implement adapter plugin discovery registry
 - **Feature Area:** `bot/monitor/retailers/`
 - **Priority:** P0
