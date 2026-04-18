@@ -723,12 +723,17 @@ class StockMonitor:
         # Run checkout flow
         webhook_callback = self._make_webhook_callback()
 
+        # Get account name for session re-auth (SESSION-T03)
+        # Use the prewarmer's account assignment if available
+        account_name = self._get_account_for_item(item_name, retailer_name)
+
         checkout_result = await self.checkout_flow.run(
             adapter=adapter,
             sku=sku,
             item_name=item_name,
             dry_run=False,
             webhook_callback=webhook_callback,
+            account_name=account_name,
         )
 
         if checkout_result.success:
@@ -803,6 +808,42 @@ class StockMonitor:
             interval = getattr(retailer_cfg, "check_interval_ms", 500)
             return interval
         return 500
+
+    def _get_account_for_item(
+        self,
+        item_name: str,
+        retailer_name: str,
+    ) -> str:
+        """Get the account name for an item/retailer combination.
+
+        Uses AccountAssigner (MAC-T02) to find the best account for the item.
+        Falls back to the primary username or "default".
+
+        Args:
+            item_name: Name of the monitored item.
+            retailer_name: Name of the retailer.
+
+        Returns:
+            Account username or "default" if no multi-account configured.
+
+        Per PRD Section 9.10 (MAC-2): item-to-account assignment.
+        """
+        try:
+            from src.bot.monitor.account_assignment import AccountAssigner
+
+            assigner = AccountAssigner(self.config)
+            account = assigner.get_single_account_for_item(item_name, retailer_name)
+            if account is not None:
+                return account.username
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Fallback: primary retailer account username
+        retailer_cfg = self.config.retailers.get(retailer_name)
+        if retailer_cfg and retailer_cfg.username:
+            return retailer_cfg.username
+
+        return "default"
 
     async def _close_all_adapters(self) -> None:
         """"Close all active adapter sessions."""

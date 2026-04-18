@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from src.bot.config import Config
     from src.bot.logger import Logger
     from src.bot.monitor.retailers.base import RetailerAdapter
+    from src.bot.session.prewarmer import SessionPrewarmer
 
 
 # Default human-like delay range in milliseconds
@@ -65,6 +66,7 @@ class CheckoutFlow:
         config: Config,
         logger: Logger,
         cart_manager: Any,
+        session_prewarmer: SessionPrewarmer | None = None,
     ) -> None:
         """Initialize the CheckoutFlow.
 
@@ -72,10 +74,22 @@ class CheckoutFlow:
             config: Validated Config instance (must include shipping, payment).
             logger: Logger instance for structured event logging.
             cart_manager: CartManager instance for cart verification.
+            session_prewarmer: Optional SessionPrewarmer for automatic re-auth
+                on session expiry (SESSION-T03).
         """
         self.config = config
         self.logger = logger
         self.cart_manager = cart_manager
+
+        # Session re-authenticator (SESSION-T03)
+        self._reauthenticator: Any = None
+        if session_prewarmer is not None:
+            from src.bot.session.reauth import SessionReauthenticator
+            self._reauthenticator = SessionReauthenticator(
+                config=config,
+                logger=logger,
+                session_prewarmer=session_prewarmer,
+            )
 
         # Load retry configuration
         checkout_cfg = getattr(config, "checkout", None)
@@ -117,6 +131,7 @@ class CheckoutFlow:
         item_name: str,
         dry_run: bool = False,
         webhook_callback: Any = None,
+        account_name: str = "default",
     ) -> CheckoutResult:
         """Run the full checkout flow for a retailer adapter.
 
@@ -128,11 +143,30 @@ class CheckoutFlow:
                 The retailer adapter's checkout() method receives dry_run=True
                 and must simulate order submission without charging.
             webhook_callback: Optional async callable that receives WebhookEvent objects.
+            account_name: Identifier for the account (used for session re-auth).
+                Defaults to "default" for single-account setups.
 
         Returns:
             CheckoutResult with success status, order_id (if success),
             stage reached, and error message (if failed).
+
+        Per PRD Section 9.1 (MON-10): on session expiry, re-authenticate
+        and restart from cart step.
         """
+        # Proactively check/reauth session before checkout (MON-10)
+        if self._reauthenticator is not None:
+            reauth_result = await self._reauthenticator.check_and_reauth(
+                adapter=adapter,
+                account_name=account_name,
+                webhook_callback=webhook_callback,
+            )
+            if not reauth_result.success:
+                return CheckoutResult(
+                    success=False,
+                    stage=CheckoutStage.PRE_CHECK.value,
+                    error=f"Session invalid and re-authentication failed: {reauth_result.error}",
+                )
+
         self.logger.info(
             "CHECKOUT_STARTED",
             item=item_name,
@@ -143,6 +177,7 @@ class CheckoutFlow:
 
         attempt = 0
         last_error = ""
+        reauthenticated = False  # Tracks if we re-auth'd mid-checkout
 
         while attempt <= self._max_retries:
             attempt += 1
@@ -163,6 +198,7 @@ class CheckoutFlow:
                 attempt=attempt,
                 dry_run=dry_run,
                 webhook_callback=webhook_callback,
+                account_name=account_name,
             )
 
             if result.success:
@@ -176,6 +212,26 @@ class CheckoutFlow:
                 return result
 
             last_error = result.error
+
+            # Handle session expiry mid-checkout (MON-10): re-auth and retry
+            if self._reauthenticator is not None and not reauthenticated:
+                reauth_result = await self._reauthenticator.reauth_on_error(
+                    adapter=adapter,
+                    account_name=account_name,
+                    error=last_error,
+                    webhook_callback=webhook_callback,
+                )
+                if reauth_result.reauthenticated:
+                    self.logger.info(
+                        "CHECKOUT_REAUTH_SUCCESS",
+                        item=item_name,
+                        retailer=adapter.name,
+                        attempt=attempt,
+                        message="Session re-authenticated, retrying checkout",
+                    )
+                    reauthenticated = True
+                    # Retry from cart step — continue to next attempt
+                    continue
 
             # Handle payment decline specifically
             decline_code = result.error or ""
@@ -237,6 +293,7 @@ class CheckoutFlow:
         attempt: int,
         dry_run: bool,
         webhook_callback: Any,
+        account_name: str = "default",
     ) -> CheckoutResult:
         """Execute a single checkout attempt.
 

@@ -314,6 +314,7 @@ async def _async_main(config_path: Path, logger: Logger) -> None:
         config=config,
         logger=logger,
         cart_manager=cart_manager,
+        session_prewarmer=session_prewarmer,
     )
     logger.info("CHECKOUT_FLOW_INITIALIZED")
 
