@@ -206,13 +206,26 @@
 
 ---
 
-**ADAPTER-T04**
+**ADAPTER-T04** ✅ DONE
 - **Title:** Implement BestBuyAdapter with Turnstile
 - **Feature Area:** `bot/monitor/retailers/bestbuy.py`
 - **Priority:** P0
 - **Complexity:** L
 - **Dependencies:** ADAPTER-T01, EVASION-T01
 - **Description:** Implement `BestBuyAdapter` extending `RetailerAdapter`. Handle: Playwright login to bestbuy.com, Turnstile CAPTCHA detection and handling, stock detection, cart, checkout. PRD Sections 9.1, 9.2, 9.3.
+- **Acceptance Criteria:**
+  - [x] BestBuyAdapter extends RetailerAdapter with super().__init__(config) called
+  - [x] login() via Playwright with credential autofill and verification
+  - [x] check_stock() via BestBuy API with Playwright page fallback
+  - [x] add_to_cart() via cart API with Playwright UI fallback; respects max_cart_quantity
+  - [x] get_cart() via cart API with Playwright UI fallback
+  - [x] checkout() with shipping/payment autofill, review step, retry logic
+  - [x] handle_captcha() with smart routing (Turnstile→auto, others→manual), 2Captcha integration
+  - [x] check_queue() with URL, title, and body text detection + BestBuy-specific elements
+  - [x] Anti-detection: stealth JS injection, UA rotation, fingerprint randomization, proxy support
+  - [x] All 7 RetailerAdapter abstract methods implemented
+  - [x] Tests: 49 passed (test_bestbuy.py)
+  - [x] mypy: clean across source and test files
 
 ---
 
