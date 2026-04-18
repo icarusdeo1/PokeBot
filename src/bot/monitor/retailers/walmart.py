@@ -179,6 +179,10 @@ class WalmartAdapter(RetailerAdapter):
         # Inject automation masking scripts
         await self._context.add_init_script(_STEALTH_SCRIPT)
 
+        # Block non-essential resources: ads, analytics, tracking (EVASION-T07)
+        from src.bot.evasion.resource_blocker import apply_resource_blocking
+        await apply_resource_blocking(self._context)
+
         self._page = await self._context.new_page()
         return self._context
 
