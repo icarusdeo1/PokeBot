@@ -219,6 +219,22 @@
       background: rgba(220,38,38,0.1); border-radius: 6px;
     }
     .form-error.visible { display: block; }
+
+    /* ── Tablet breakpoints (1024px+) ── */
+    @media (max-width: 1024px) {
+      .dash-body { padding: 1rem; }
+      .settings-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .captcha-summary { grid-template-columns: repeat(3, 1fr); }
+      .status-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+      .drop-list { gap: .5rem; }
+    }
+
+    @media (max-width: 768px) {
+      .dash-body { padding: .75rem; }
+      .captcha-summary { grid-template-columns: 1fr 1fr; }
+      .status-grid { grid-template-columns: 1fr 1fr; }
+      .section-header { flex-direction: column; align-items: flex-start; gap: .75rem; }
+    }
   </style>
 </head>
 <body>
@@ -557,6 +573,7 @@
         </div>
       </div>
       <div id="settings-saved" style="display:none;color:var(--success);margin-top:1rem;font-weight:600;">✓ Settings saved successfully!</div>
+      <div id="settings-error" class="form-error hidden" style="margin-top:.75rem;"></div>
     </div>
 
     <!-- ── CAPTCHA Panel ───────────────────────── -->
@@ -732,6 +749,7 @@ function showView(name) {
   if (name === 'events') loadEventHistory();
   if (name === 'settings') loadSettings();
   if (name === 'calendar') loadDropWindows();
+  if (name === 'accounts') loadAccounts();
 }
 
 // ── Status ─────────────────────────────────────────────────────────────────────
@@ -991,7 +1009,69 @@ function addItem() {
 
 function removeItem(i) { /* basic */ }
 
+function validateSettings() {
+  /** Inline field validation for Settings form.
+   * Returns true if all fields are valid, false otherwise.
+   * Shows inline error messages on invalid fields.
+   */
+  const errors = [];
+  const email = document.getElementById('cfg-ship-email').value.trim();
+  const phone = document.getElementById('cfg-ship-phone').value.trim();
+  const zip = document.getElementById('cfg-ship-zip').value.trim();
+  const budget = document.getElementById('cfg-captcha-budget').value;
+
+  // Clear previous inline errors
+  document.querySelectorAll('.settings-inline-error').forEach(el => el.remove());
+
+  // Email: must be valid format if non-empty
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.push('Email address is invalid.');
+    _showInlineError('cfg-ship-email', 'Invalid email address.');
+  }
+
+  // Phone: digits only, 7-15 chars if non-empty
+  if (phone && !/^[\d\s\-\+\(\)]{7,20}$/.test(phone)) {
+    errors.push('Phone number format is invalid.');
+    _showInlineError('cfg-ship-phone', 'Invalid phone number.');
+  }
+
+  // ZIP: alphanumeric 5-10 chars if non-empty (supports US ZIP and international)
+  if (zip && !/^[a-zA-Z0-9\s\-]{3,10}$/.test(zip)) {
+    errors.push('ZIP/Postal code is invalid.');
+    _showInlineError('cfg-ship-zip', 'Invalid ZIP/Postal code.');
+  }
+
+  // Daily budget: must be a non-negative number
+  const budgetNum = parseFloat(budget);
+  if (isNaN(budgetNum) || budgetNum < 0) {
+    errors.push('Daily budget must be a non-negative number.');
+    _showInlineError('cfg-captcha-budget', 'Must be >= 0.');
+  }
+
+  const errEl = document.getElementById('settings-error');
+  if (errors.length > 0) {
+    errEl.textContent = errors[0];
+    errEl.classList.add('visible');
+    return false;
+  }
+  errEl.classList.remove('visible');
+  return true;
+}
+
+function _showInlineError(inputId, message) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const err = document.createElement('div');
+  err.className = 'settings-inline-error';
+  err.style.cssText = 'color:var(--danger);font-size:.75rem;margin-top:.25rem;padding:.25rem .5rem;background:rgba(220,38,38,0.1);border-radius:4px;';
+  err.textContent = message;
+  input.parentElement.appendChild(err);
+}
+
 async function saveSettings() {
+  // Inline validation before submitting
+  if (!validateSettings()) return;
+
   // Collect form data and PATCH /api/config
   const payload = {
     captcha: {
@@ -1027,6 +1107,35 @@ async function toggleRetailer(name, enabled) {
     method: 'PATCH',
     body: JSON.stringify({ retailers: { [name]: { enabled } } }),
   });
+}
+
+// ── Accounts ────────────────────────────────────────────────────────────────────
+async function loadAccounts() {
+  /** Load session status for accounts panel from /api/status and populate accounts-list. */
+  try {
+    const res = await api('/api/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const sh = data.session_health || {};
+    const el = document.getElementById('accounts-list');
+    if (!el) return;
+    const entries = Object.entries(sh);
+    if (!entries.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;text-align:center;">No sessions tracked yet.</div>';
+      return;
+    }
+    el.innerHTML = entries.map(([retailer, status]) => {
+      const dotColor = status === 'green' ? 'var(--success)' : status === 'yellow' ? 'var(--warning)' : 'var(--danger)';
+      const statusLabel = status === 'green' ? 'Healthy' : status === 'yellow' ? 'Expiring Soon' : 'Expired/Invalid';
+      return `<div style="display:flex;align-items:center;gap:.75rem;padding:.875rem 1rem;background:var(--surface2);border-radius:8px;margin-bottom:.5rem;">
+        <span style="width:12px;height:12px;border-radius:50%;background:${dotColor};flex-shrink:0;"></span>
+        <strong style="flex:1;">${retailer.charAt(0).toUpperCase() + retailer.slice(1)}</strong>
+        <span style="color:var(--text-muted);font-size:.875rem;">${statusLabel}</span>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load accounts:', err);
+  }
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────────

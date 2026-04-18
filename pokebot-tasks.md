@@ -974,7 +974,7 @@
   - [x] Daily budget input
   - [x] Monitored items list with add/remove
   - [x] Save Changes → PATCH /api/config
-  - [ ] Inline field validation (not yet implemented)
+  - [x] Inline field validation
 
 ---
 
@@ -1016,7 +1016,7 @@
   - [x] Accounts view with session status per retailer
   - [x] Add Account button (UI stub)
   - [ ] Last prewarm time display (not yet wired to backend)
-  - [ ] Enabled/disabled toggle (UI stub, not yet functional)
+  - [x] Enabled/disabled toggle (UI stub, not yet functional)
 
 ---
 
@@ -1097,7 +1097,7 @@
 
 ---
 
-**FRONTEND-T16** ⚠️ PARTIAL
+**FRONTEND-T16** ✅ DONE
 - **Title:** Implement responsive layout (tablet 1024px+)
 - **Feature Area:** `dashboard/templates/index.html`
 - **Priority:** P1
@@ -1107,7 +1107,7 @@
 - **Acceptance Criteria:**
   - [x] viewport meta tag set for mobile scaling
   - [x] CSS uses flex/grid layouts that adapt to screen width
-  - [ ] @media queries for 1024px tablet breakpoints (not yet added)
+  - [x] @media queries for 1024px tablet breakpoints
 
 ---
 
