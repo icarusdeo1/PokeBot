@@ -27,7 +27,7 @@ from src.dashboard.auth import DashboardSession, UserRole, require_auth
 
 
 async def status_route(
-    session: DashboardSession = Depends(require_auth(UserRole.VIEWER)),
+    session: Any = Depends(require_auth(UserRole.VIEWER)),
 ) -> dict[str, Any]:
     """Return daemon state from state.db.
 
