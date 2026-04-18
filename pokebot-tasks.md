@@ -1318,13 +1318,15 @@
 
 ---
 
-**DCT-T04**
+**DCT-T04** ✅ DONE
 - **Title:** Implement recurring drop support (one-shot + cron-like)
 - **Feature Area:** `bot/config.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** PHASE3-T01
 - **Description:** Support one-shot drops (single event) and recurring drops (cron-like schedule). PRD Section 9.13 (DCT-5).
+- **Completed:** 2026-04-18 (commit 888fb1f)
+- **Implementation:** Added `_validate_cron_field`, `_validate_cron_expr`, `_get_next_cron_occurrence` helpers. Drop windows now support `schedule_type` (once/recurring) and `cron_expr` fields. Frontend form includes schedule type selector and cron expression input. Recurring drops recompute next occurrence each cycle and never get pruned.
 
 ---
 
