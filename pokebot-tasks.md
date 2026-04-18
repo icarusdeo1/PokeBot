@@ -43,13 +43,23 @@
 
 ---
 
-**SHARED-T02**
+**SHARED-T02** ✅ DONE
 - **Title:** Implement SQLite state.db schema
 - **Feature Area:** `shared/db.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** SHARED-T01
 - **Description:** Create `shared/db.py` with WAL-mode SQLite helpers for `state.db` and `auth.db`. Define tables: `events` (id, event, item, retailer, timestamp, order_id, error, attempt), `command_queue` (id, command, args, created_at, processed_at, status), `session_state` (retailer, cookies_json, auth_token, cart_token, prewarmed_at, is_valid), `drop_windows` (id, item, retailer, drop_datetime, prewarm_minutes, enabled). Use sqlite3 with WAL mode, connection pooling. PRD Sections 8.1, 8.2.
+- **Acceptance Criteria:**
+  - [x] DatabaseManager class with WAL mode and connection pooling
+  - [x] All tables created with correct schemas
+  - [x] Events table with indexed queries
+  - [x] Command queue with claim/complete pattern
+  - [x] Session state save/load/invalidate
+  - [x] Drop windows CRUD + past pruning
+  - [x] CAPTCHA budget tracking
+  - [x] Tests: 31 passed
+  - [x] mypy: no issues
 
 ---
 
