@@ -11,10 +11,15 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import yaml
+
+# UTC timezone for drop window comparisons
+_UTC = ZoneInfo("UTC")
 
 
 # Environment variable mappings: env var -> (config key path, default value)
@@ -268,7 +273,106 @@ class Config:
             ),
         )
 
-        self.drop_windows = self._raw.get("drop_windows", []) or []
+        # Validate and load drop windows
+        raw_drop_windows = self._raw.get("drop_windows", []) or []
+        validated_windows: list[dict[str, Any]] = []
+        for i, dw in enumerate(raw_drop_windows):
+            if not isinstance(dw, dict):
+                errors.append(f"drop_windows[{i}]: must be a mapping, got {type(dw).__name__}")
+                continue
+
+            item = dw.get("item", "")
+            if not item or not str(item).strip():
+                errors.append(f"drop_windows[{i}].item is required")
+
+            retailer = dw.get("retailer", "")
+            if retailer not in _RETAILERS:
+                errors.append(
+                    f"drop_windows[{i}].retailer must be one of {sorted(_RETAILERS)}, "
+                    f"got '{retailer}'"
+                )
+
+            drop_datetime_str = dw.get("drop_datetime", "")
+            parsed_dt: datetime | None = None
+            if not drop_datetime_str or not str(drop_datetime_str).strip():
+                errors.append(f"drop_windows[{i}].drop_datetime is required (ISO-8601 with timezone)")
+            else:
+                try:
+                    # Parse ISO-8601 datetime with timezone
+                    parsed_dt = datetime.fromisoformat(str(drop_datetime_str).strip())
+                    # Ensure it has timezone info (assume UTC if naive)
+                    if parsed_dt.tzinfo is None:
+                        parsed_dt = parsed_dt.replace(tzinfo=_UTC)
+                except ValueError:
+                    errors.append(
+                        f"drop_windows[{i}].drop_datetime must be valid ISO-8601 "
+                        f"(e.g. 2026-04-20T10:00:00-07:00), got '{drop_datetime_str}'"
+                    )
+
+            prewarm_minutes = dw.get("prewarm_minutes", 15)
+            try:
+                prewarm_minutes = int(prewarm_minutes)
+                if prewarm_minutes < 0:
+                    errors.append(
+                        f"drop_windows[{i}].prewarm_minutes must be >= 0, got {prewarm_minutes}"
+                    )
+            except (TypeError, ValueError):
+                errors.append(
+                    f"drop_windows[{i}].prewarm_minutes must be an integer, "
+                    f"got {type(prewarm_minutes).__name__}"
+                )
+
+            enabled = dw.get("enabled", True)
+            if not isinstance(enabled, bool):
+                # Accept string "true"/"false"
+                if isinstance(enabled, str):
+                    enabled = enabled.lower() in ("true", "1", "yes")
+                else:
+                    errors.append(
+                        f"drop_windows[{i}].enabled must be a boolean, "
+                        f"got {type(enabled).__name__}"
+                    )
+                    enabled = True
+
+            max_cart_quantity = dw.get("max_cart_quantity", 1)
+            try:
+                max_cart_quantity = int(max_cart_quantity)
+                if max_cart_quantity < 1:
+                    errors.append(
+                        f"drop_windows[{i}].max_cart_quantity must be >= 1, got {max_cart_quantity}"
+                    )
+            except (TypeError, ValueError):
+                errors.append(
+                    f"drop_windows[{i}].max_cart_quantity must be an integer, "
+                    f"got {type(max_cart_quantity).__name__}"
+                )
+                max_cart_quantity = 1
+
+            # Only add to validated list if no errors for this window
+            if not any("drop_windows[" + str(i) in e for e in errors):
+                validated_windows.append({
+                    "item": str(item).strip(),
+                    "retailer": retailer,
+                    "drop_datetime": str(drop_datetime_str).strip(),
+                    "prewarm_minutes": prewarm_minutes,
+                    "enabled": enabled,
+                    "max_cart_quantity": max_cart_quantity,
+                    "_parsed_datetime": parsed_dt,
+                })
+
+        # PHASE3-T03: prune past drop windows from active memory
+        now_utc = datetime.now(tz=_UTC)
+        pruned_count = 0
+        self.drop_windows = []
+        for dw in validated_windows:
+            parsed = dw.get("_parsed_datetime")
+            if parsed is not None and parsed < now_utc:
+                pruned_count += 1
+                continue  # skip past drop windows
+            # Remove internal _parsed_datetime before storing
+            dw_copy = {k: v for k, v in dw.items() if k != "_parsed_datetime"}
+            self.drop_windows.append(dw_copy)
+
         self.accounts = self._raw.get("accounts", {}) or {}
 
         if errors:

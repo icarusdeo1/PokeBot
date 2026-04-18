@@ -466,3 +466,232 @@ class TestEnvVarOverrides:
             mp.setenv("POKEDROP_PROXY_LIST", "http://user:pass@proxy.com:8080")
             cfg = Config.from_file(path)
         assert "http://user:pass@proxy.com:8080" in cfg.evasion.proxy_list
+
+
+# ── Drop Window Validation Tests (PHASE3-T01 / PHASE3-T03) ────────────────────
+
+
+class TestDropWindowValidation:
+    """Test drop_windows validation in Config._validate()."""
+
+    def _drop_window(self, **overrides: object) -> dict:
+        """Return a valid drop window dict merged with overrides."""
+        from datetime import datetime, timedelta, timezone
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+        base = {
+            "item": "Charizard Box",
+            "retailer": "target",
+            "drop_datetime": future.isoformat(),
+            "prewarm_minutes": 15,
+            "enabled": True,
+            "max_cart_quantity": 1,
+        }
+        base.update(overrides)
+        return base
+
+    def _config_with_drop_window(self, windows: list[dict]) -> dict:
+        cfg = minimal_valid_config()
+        cfg["drop_windows"] = windows
+        return cfg
+
+    def test_valid_drop_window_loaded(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window()])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.drop_windows) == 1
+        dw = cfg.drop_windows[0]
+        assert dw["item"] == "Charizard Box"
+        assert dw["retailer"] == "target"
+        assert dw["prewarm_minutes"] == 15
+        assert dw["enabled"] is True
+        assert dw["max_cart_quantity"] == 1
+
+    def test_valid_drop_window_all_retailers(self, tmp_path: Path) -> None:
+        for retailer in ["target", "walmart", "bestbuy"]:
+            config = self._config_with_drop_window([self._drop_window(retailer=retailer)])
+            path = write_config_file(tmp_path, config)
+            cfg = Config.from_file(path)
+            assert len(cfg.drop_windows) == 1
+            assert cfg.drop_windows[0]["retailer"] == retailer
+
+    def test_missing_item_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(item="")])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].item is required" in str(exc_info.value)
+
+    def test_missing_item_whitespace_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(item="   ")])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].item is required" in str(exc_info.value)
+
+    def test_invalid_retailer_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(retailer="amazon")])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].retailer must be one of" in str(exc_info.value)
+        assert "amazon" in str(exc_info.value)
+
+    def test_missing_drop_datetime_raises(self, tmp_path: Path) -> None:
+        dw = self._drop_window()
+        del dw["drop_datetime"]
+        config = self._config_with_drop_window([dw])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].drop_datetime is required" in str(exc_info.value)
+
+    def test_invalid_datetime_format_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(drop_datetime="not-a-date")])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].drop_datetime must be valid ISO-8601" in str(exc_info.value)
+
+    def test_datetime_naive_parsed_as_utc(self, tmp_path: Path) -> None:
+        # Naive datetime should be accepted and treated as UTC
+        config = self._config_with_drop_window([self._drop_window(drop_datetime="2026-04-20T10:00:00")])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.drop_windows) == 1
+        assert "2026-04-20T10:00:00" in cfg.drop_windows[0]["drop_datetime"]
+
+    def test_negative_prewarm_minutes_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(prewarm_minutes=-5)])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].prewarm_minutes must be >= 0" in str(exc_info.value)
+
+    def test_non_integer_prewarm_minutes_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(prewarm_minutes="ten")])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].prewarm_minutes must be an integer" in str(exc_info.value)
+
+    def test_invalid_enabled_type_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(enabled="yes")])
+        path = write_config_file(tmp_path, config)
+        # String "yes" should be accepted (converted to True)
+        cfg = Config.from_file(path)
+        assert cfg.drop_windows[0]["enabled"] is True
+
+    def test_valid_max_cart_quantity(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(max_cart_quantity=3)])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert cfg.drop_windows[0]["max_cart_quantity"] == 3
+
+    def test_invalid_max_cart_quantity_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._drop_window(max_cart_quantity=0)])
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "drop_windows[0].max_cart_quantity must be >= 1" in str(exc_info.value)
+
+    def test_multiple_drop_windows_all_valid(self, tmp_path: Path) -> None:
+        from datetime import datetime, timedelta, timezone
+        future1 = datetime.now(timezone.utc) + timedelta(days=7)
+        future2 = datetime.now(timezone.utc) + timedelta(days=14)
+        windows = [
+            self._drop_window(item="Item 1", retailer="target", drop_datetime=future1.isoformat()),
+            self._drop_window(item="Item 2", retailer="walmart", drop_datetime=future2.isoformat()),
+        ]
+        config = self._config_with_drop_window(windows)
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.drop_windows) == 2
+
+
+class TestDropWindowPruning:
+    """Test PHASE3-T03: past drop windows are pruned on startup."""
+
+    def _config_with_drop_window(self, windows: list[dict]) -> dict:
+        cfg = minimal_valid_config()
+        cfg["drop_windows"] = windows
+        return cfg
+
+    def _past_drop_window(self, **overrides: object) -> dict:
+        from datetime import datetime, timedelta, timezone
+        past = datetime.now(timezone.utc) - timedelta(days=1)
+        base = {
+            "item": "Past Charizard Box",
+            "retailer": "target",
+            "drop_datetime": past.isoformat(),
+            "prewarm_minutes": 15,
+            "enabled": True,
+            "max_cart_quantity": 1,
+        }
+        base.update(overrides)
+        return base
+
+    def _future_drop_window(self, **overrides: object) -> dict:
+        from datetime import datetime, timedelta, timezone
+        future = datetime.now(timezone.utc) + timedelta(days=7)
+        base = {
+            "item": "Future Charizard Box",
+            "retailer": "target",
+            "drop_datetime": future.isoformat(),
+            "prewarm_minutes": 15,
+            "enabled": True,
+            "max_cart_quantity": 1,
+        }
+        base.update(overrides)
+        return base
+
+    def test_past_drop_window_pruned(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._past_drop_window()])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.drop_windows) == 0
+
+    def test_future_drop_window_kept(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([self._future_drop_window()])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.drop_windows) == 1
+        assert cfg.drop_windows[0]["item"] == "Future Charizard Box"
+
+    def test_mixed_past_and_future_keeps_future_only(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([
+            self._past_drop_window(item="Past Item"),
+            self._future_drop_window(item="Future Item"),
+            self._past_drop_window(item="Another Past"),
+        ])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.drop_windows) == 1
+        assert cfg.drop_windows[0]["item"] == "Future Item"
+
+    def test_drop_window_just_past_pruned(self, tmp_path: Path) -> None:
+        from datetime import datetime, timedelta, timezone
+        # 1 minute ago — should be pruned
+        just_past = datetime.now(timezone.utc) - timedelta(minutes=1)
+        config = self._config_with_drop_window([{
+            "item": "Just Past Box",
+            "retailer": "target",
+            "drop_datetime": just_past.isoformat(),
+            "prewarm_minutes": 15,
+            "enabled": True,
+            "max_cart_quantity": 1,
+        }])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.drop_windows) == 0
+
+    def test_empty_drop_windows_list(self, tmp_path: Path) -> None:
+        config = self._config_with_drop_window([])
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert cfg.drop_windows == []
+
+    def test_drop_windows_key_missing(self, tmp_path: Path) -> None:
+        config = minimal_valid_config()
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert cfg.drop_windows == []
