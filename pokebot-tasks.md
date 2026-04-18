@@ -1417,13 +1417,20 @@
 
 ---
 
-**MAC-T03**
+**MAC-T03** ✅ DONE
 - **Title:** Implement one-purchase-per-account enforcement
 - **Feature Area:** `bot/monitor/stock_monitor.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** MAC-T02, SHARED-T02
 - **Description:** Enforce one-purchase-per-account rule: same item cannot be purchased by two accounts in the same drop window. Track purchase state in state.db. PRD Section 9.10 (MAC-3).
+- **Acceptance Criteria:**
+  - [x] `account_purchases` table in `state.db` with item, retailer, drop_window_id, account_index, purchased_at
+  - [x] `has_item_been_purchased_in_window()` — returns True if item already purchased in that drop window
+  - [x] `can_purchase()` / `record_purchase()` via `OnePurchaseEnforcer` class
+  - [x] `clear_purchase_history()` for old record cleanup
+  - [x] Tests: 9 passed
+  - [x] mypy: no issues
 
 ---
 
