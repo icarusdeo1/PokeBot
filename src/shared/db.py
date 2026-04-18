@@ -13,7 +13,7 @@ import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -126,9 +126,17 @@ class DatabaseManager:
                         auth_token TEXT NOT NULL DEFAULT '',
                         cart_token TEXT NOT NULL DEFAULT '',
                         prewarmed_at TEXT,
+                        expires_at TEXT,
                         is_valid INTEGER NOT NULL DEFAULT 1
                     )
                 """)
+                # Migration: add expires_at column if missing (existing dbs)
+                try:
+                    conn.execute(
+                        "ALTER TABLE session_state ADD COLUMN expires_at TEXT"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
 
                 # ── drop_windows table ───────────────────────────────────────
                 conn.execute("""
@@ -340,6 +348,7 @@ class DatabaseManager:
         auth_token: str = "",
         cart_token: str = "",
         is_valid: bool = True,
+        expires_at: str = "",
     ) -> None:
         """Persist or update a retailer's browser session.
 
@@ -349,18 +358,19 @@ class DatabaseManager:
             auth_token: Auth token string.
             cart_token: Cart token string.
             is_valid: Whether the session is currently valid.
+            expires_at: ISO-8601 UTC expiry timestamp (used for TTL-based expiry).
         """
         cookies_json = json.dumps(cookies)
-        prewarmed_at = datetime.utcnow().isoformat() + "Z"
+        prewarmed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         with self._write_lock:
             with self.connection() as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO session_state
-                        (retailer, cookies_json, auth_token, cart_token, prewarmed_at, is_valid)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (retailer, cookies_json, auth_token, cart_token, prewarmed_at, expires_at, is_valid)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (retailer, cookies_json, auth_token, cart_token, prewarmed_at, int(is_valid)),
+                    (retailer, cookies_json, auth_token, cart_token, prewarmed_at, expires_at, int(is_valid)),
                 )
                 conn.commit()
 
@@ -386,6 +396,7 @@ class DatabaseManager:
             "auth_token": row["auth_token"],
             "cart_token": row["cart_token"],
             "prewarmed_at": row["prewarmed_at"],
+            "expires_at": row["expires_at"] if "expires_at" in row.keys() else "",
             "is_valid": bool(row["is_valid"]),
         }
 

@@ -18,6 +18,7 @@ import httpx
 
 if TYPE_CHECKING:
     from src.bot.config import Config
+    from src.shared.db import DatabaseManager
     from src.shared.models import DropWindow
     from src.bot.logger import Logger
     from src.bot.monitor.retailers.base import RetailerAdapter
@@ -133,15 +134,24 @@ class SessionPrewarmer:
         self,
         config: Config,
         logger: Logger | None = None,
+        db: DatabaseManager | None = None,
     ) -> None:
         """Initialize the pre-warmer.
 
         Args:
             config: Validated bot configuration.
             logger: Optional logger for lifecycle events.
+            db: Optional DatabaseManager for session persistence. If provided,
+                sessions will be saved to and loaded from state.db, enabling
+                sessions to survive bot restarts.
         """
         self.config = config
         self.logger = logger
+        self._db = db
+        self._persistence = None
+        if db is not None:
+            from src.bot.session.persistence import SessionPersistence
+            self._persistence = SessionPersistence(db)
         self._cache = SessionCache()
         self._running = False
         self._task: asyncio.Task[None] | None = None
@@ -173,6 +183,37 @@ class SessionPrewarmer:
             self._task = None
         self._log("INFO", "PREWARMER_STOPPED")
 
+    def load_from_db(self) -> None:
+        """Pre-populate the session cache from persisted DB records.
+
+        Call this at startup to restore sessions from state.db so they're
+        immediately available without re-authenticating. Expired sessions
+        are skipped and marked invalid in the DB.
+
+        This is called automatically by the daemon on startup (PHASE1.5).
+        """
+        if self._persistence is None:
+            return
+
+        sessions = self._persistence.load_all_sessions()
+        for retailer, session_state in sessions.items():
+            prewarm_session = PrewarmSession(
+                retailer=retailer,
+                account_name="persisted",
+                cookies=session_state.cookies,
+                auth_token=session_state.auth_token,
+                cart_token=session_state.cart_token,
+                prewarmed_at=session_state.prewarmed_at,
+                expires_at=session_state.expires_at,
+                adapter_name="",
+            )
+            self._cache.set(retailer, "persisted", prewarm_session)
+            self._log(
+                "INFO", "SESSION_RESTORED_FROM_DB",
+                retailer=retailer,
+                cookies_count=len(session_state.cookies),
+            )
+
     async def prewarm_now(
         self,
         adapter: RetailerAdapter,
@@ -200,15 +241,49 @@ class SessionPrewarmer:
     ) -> PrewarmSession | None:
         """Return a valid pre-warmed session, or None if not available.
 
+        First checks the in-memory cache. If not found and persistence
+        is configured, loads from the database. If the DB session is
+        valid and not expired, injects it into the cache and returns it.
+
         Call this during checkout to retrieve the pre-warmed session
         for the given retailer/account and inject it into the adapter's
         HTTP client (cookies) and authentication state.
         """
-        return self._cache.get_valid(retailer, account_name)
+        # Check in-memory cache first
+        session = self._cache.get_valid(retailer, account_name)
+        if session is not None:
+            return session
+
+        # Try loading from persistence if configured
+        if self._persistence is not None:
+            session_state = self._persistence.load_session(retailer)
+            if session_state is not None:
+                # Reconstruct PrewarmSession from SessionState
+                session = PrewarmSession(
+                    retailer=retailer,
+                    account_name=account_name,
+                    cookies=session_state.cookies,
+                    auth_token=session_state.auth_token,
+                    cart_token=session_state.cart_token,
+                    prewarmed_at=session_state.prewarmed_at,
+                    expires_at=session_state.expires_at,
+                    adapter_name="",
+                )
+                # Inject into cache for future lookups
+                self._cache.set(retailer, account_name, session)
+                self._log(
+                    "INFO", "SESSION_LOADED_FROM_DB",
+                    retailer=retailer, account=account_name,
+                )
+                return session
+
+        return None
 
     def invalidate_session(self, retailer: str, account_name: str) -> None:
-        """Invalidate a cached session, forcing re-auth on next use."""
+        """Invalidate a cached session and persisted state, forcing re-auth on next use."""
         self._cache.invalidate(retailer, account_name)
+        if self._persistence is not None:
+            self._persistence.invalidate_session(retailer)
         self._log("INFO", "SESSION_INVALIDATED", retailer=retailer, account=account_name)
 
     def get_status(self) -> dict[str, list[dict[str, Any]]]:
@@ -391,6 +466,14 @@ class SessionPrewarmer:
 
             # Store in cache
             self._cache.set(retailer, account_name, session)
+
+            # Persist to DB if configured (MON-8: persist and reuse cookies)
+            if self._persistence is not None:
+                self._persistence.save_session(retailer, session)
+                self._log(
+                    "INFO", "SESSION_PERSISTED",
+                    retailer=retailer, account=account_name,
+                )
 
             self._log(
                 "INFO", "PREWARM_SUCCESS",

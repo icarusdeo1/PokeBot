@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -528,3 +529,253 @@ def _make_session(
         expires_at=expires.isoformat(),
         adapter_name="TestAdapter",
     )
+
+
+# ─── SessionPrewarmer — persistence integration ────────────────────────────────
+
+class TestSessionPrewarmerWithDb:
+    def test_init_with_db_sets_up_persistence(self, tmp_path: Path) -> None:
+        from src.shared.db import DatabaseManager
+        db_path = tmp_path / "state.db"
+        db = DatabaseManager(db_path)
+        db.initialize()
+
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config, db=db)
+
+        assert prewarmer._db is db
+        assert prewarmer._persistence is not None
+
+    def test_init_without_db_no_persistence(self) -> None:
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config)
+
+        assert prewarmer._db is None
+        assert prewarmer._persistence is None
+
+
+@pytest.mark.asyncio
+class TestPrewarmNowWithPersistence:
+    async def test_prewarm_now_saves_to_db_on_success(self, tmp_path: Path) -> None:
+        from src.shared.db import DatabaseManager
+        db_path = tmp_path / "state.db"
+        db = DatabaseManager(db_path)
+        db.initialize()
+
+        mock_retailer_cfg = MagicMock()
+        mock_retailer_cfg.username = "user"
+        mock_retailer_cfg.password = "pass"
+
+        mock_config = MagicMock()
+        mock_config.retailers.get.return_value = mock_retailer_cfg
+
+        prewarmer = SessionPrewarmer(mock_config, db=db)
+
+        mock_adapter = MagicMock()
+        mock_adapter.name = "target"
+        mock_adapter.login = AsyncMock(return_value=True)
+        mock_adapter.session_state = MagicMock(
+            cookies={"session_id": "db_test_123"},
+            auth_token="db_auth_token",
+            cart_token="db_cart_token",
+        )
+        mock_adapter.close = AsyncMock()
+
+        result = await prewarmer.prewarm_now(mock_adapter, "primary")
+        assert result.success is True
+
+        # Verify session was persisted to DB
+        row = db.load_session("target")
+        assert row is not None
+        assert row["cookies"] == {"session_id": "db_test_123"}
+        assert row["auth_token"] == "db_auth_token"
+        assert row["expires_at"] != ""
+
+    async def test_prewarm_now_no_db_save_when_no_db(self) -> None:
+        mock_config = MagicMock()
+        mock_retailer_cfg = MagicMock()
+        mock_retailer_cfg.username = "user"
+        mock_retailer_cfg.password = "pass"
+        mock_config.retailers.get.return_value = mock_retailer_cfg
+
+        prewarmer = SessionPrewarmer(mock_config)  # no db
+
+        mock_adapter = MagicMock()
+        mock_adapter.name = "target"
+        mock_adapter.login = AsyncMock(return_value=True)
+        mock_adapter.session_state = MagicMock(
+            cookies={"session_id": "cache_only"},
+            auth_token="at",
+            cart_token="ct",
+        )
+        mock_adapter.close = AsyncMock()
+
+        result = await prewarmer.prewarm_now(mock_adapter, "primary")
+        assert result.success is True
+        # Session should be in cache (assert it doesn't raise)
+        assert prewarmer.get_valid_session("target", "primary") is not None
+
+
+class TestGetValidSessionWithPersistence:
+    def test_loads_from_db_when_not_in_cache(self, tmp_path: Path) -> None:
+        from src.shared.db import DatabaseManager
+        db_path = tmp_path / "state.db"
+        db = DatabaseManager(db_path)
+        db.initialize()
+
+        # Pre-populate DB with a valid session
+        future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        db.save_session(
+            retailer="target",
+            cookies={"db_cookie": "db_value"},
+            auth_token="db_auth",
+            cart_token="db_cart",
+            is_valid=True,
+            expires_at=future,
+        )
+
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config, db=db)
+
+        # Session not in cache yet
+        assert prewarmer._cache.get("target", "primary") is None
+
+        # Should load from DB
+        session = prewarmer.get_valid_session("target", "primary")
+        assert session is not None
+        assert session.cookies == {"db_cookie": "db_value"}
+        assert session.auth_token == "db_auth"
+
+        # Should also be in cache now
+        assert prewarmer._cache.get("target", "primary") is not None
+
+    def test_prefers_cache_over_db(self, tmp_path: Path) -> None:
+        from src.shared.db import DatabaseManager
+        db_path = tmp_path / "state.db"
+        db = DatabaseManager(db_path)
+        db.initialize()
+
+        # Pre-populate DB with one session
+        future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        db.save_session(
+            retailer="target",
+            cookies={"db_cookie": "db_value"},
+            auth_token="db_auth",
+            cart_token="db_cart",
+            is_valid=True,
+            expires_at=future,
+        )
+
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config, db=db)
+
+        # Manually put a different session in cache
+        cache_session = _make_session("target", "primary")
+        prewarmer._cache.set("target", "primary", cache_session)
+
+        # Should return cached session (with different cookies)
+        session = prewarmer.get_valid_session("target", "primary")
+        assert session is not None
+        # Cache session has {"session_id": "test123", "auth": "token456"}
+        assert session.cookies.get("session_id") == "test123"
+
+    def test_skips_expired_session_from_db(self, tmp_path: Path) -> None:
+        from src.shared.db import DatabaseManager
+        db_path = tmp_path / "state.db"
+        db = DatabaseManager(db_path)
+        db.initialize()
+
+        # Pre-populate DB with an expired session
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        db.save_session(
+            retailer="target",
+            cookies={"expired": "cookie"},
+            auth_token="at",
+            cart_token="ct",
+            is_valid=True,
+            expires_at=past,
+        )
+
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config, db=db)
+
+        # Should not return expired session
+        assert prewarmer.get_valid_session("target", "primary") is None
+
+
+class TestInvalidateSessionWithPersistence:
+    def test_invalidate_also_invalidates_db(self, tmp_path: Path) -> None:
+        from src.shared.db import DatabaseManager
+        db_path = tmp_path / "state.db"
+        db = DatabaseManager(db_path)
+        db.initialize()
+
+        # Pre-populate DB with a valid session
+        future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        db.save_session(
+            retailer="target",
+            cookies={"cookie": "val"},
+            auth_token="at",
+            cart_token="ct",
+            is_valid=True,
+            expires_at=future,
+        )
+
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config, db=db)
+
+        # Verify session valid
+        assert prewarmer.get_valid_session("target", "primary") is not None
+
+        # Invalidate
+        prewarmer.invalidate_session("target", "primary")
+
+        # Should be gone from cache
+        assert prewarmer.get_valid_session("target", "primary") is None
+
+        # DB should also be invalid
+        row = db.load_session("target")
+        assert row is not None
+        assert row["is_valid"] is False
+
+
+class TestLoadFromDb:
+    def test_load_from_db_populates_cache(self, tmp_path: Path) -> None:
+        from src.shared.db import DatabaseManager
+        db_path = tmp_path / "state.db"
+        db = DatabaseManager(db_path)
+        db.initialize()
+
+        future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        db.save_session(
+            retailer="target",
+            cookies={"t": "1"},
+            auth_token="at1",
+            cart_token="ct1",
+            is_valid=True,
+            expires_at=future,
+        )
+        db.save_session(
+            retailer="walmart",
+            cookies={"w": "2"},
+            auth_token="at2",
+            cart_token="ct2",
+            is_valid=True,
+            expires_at=future,
+        )
+
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config, db=db)
+
+        prewarmer.load_from_db()
+
+        assert prewarmer._cache.get("target", "persisted") is not None
+        assert prewarmer._cache.get("walmart", "persisted") is not None
+
+    def test_load_from_db_noops_without_db(self) -> None:
+        mock_config = MagicMock()
+        prewarmer = SessionPrewarmer(mock_config)
+
+        prewarmer.load_from_db()  # no raise
+
+        assert prewarmer._cache.sessions == {}

@@ -248,6 +248,28 @@ class TestSessionState:
         assert session is not None
         assert session["is_valid"] is False
 
+    def test_save_session_with_expires_at(self, db: DatabaseManager) -> None:
+        """save_session should persist expires_at field."""
+        future = "2026-04-20T15:00:00+00:00"
+        db.save_session(
+            retailer="target",
+            cookies={"s": "v"},
+            auth_token="at",
+            cart_token="ct",
+            is_valid=True,
+            expires_at=future,
+        )
+        session = db.load_session("target")
+        assert session is not None
+        assert session["expires_at"] == future
+
+    def test_load_session_expires_at_empty_string_when_not_set(self, db: DatabaseManager) -> None:
+        """load_session should return empty string for expires_at when not set."""
+        db.save_session(retailer="target", cookies={}, is_valid=True)
+        session = db.load_session("target")
+        assert session is not None
+        assert session["expires_at"] == ""
+
 
 class TestDropWindows:
     """Test drop windows CRUD operations."""

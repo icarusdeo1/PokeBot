@@ -184,6 +184,7 @@ class SessionState:
     auth_token: str = ""
     cart_token: str = ""
     prewarmed_at: str = ""
+    expires_at: str = ""  # ISO-8601 UTC — session is valid until this time
     is_valid: bool = True
 
 
