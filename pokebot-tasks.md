@@ -63,13 +63,19 @@
 
 ---
 
-**SHARED-T03**
+**SHARED-T03** ✅ DONE
 - **Title:** Define shared dataclasses/models
 - **Feature Area:** `shared/models.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T01
 - **Description:** Implement all dataclasses from PRD Section 8.1: `MonitoredItem`, `RetailerAdapter`, `CheckoutConfig`, `ShippingInfo`, `PaymentInfo`, `WebhookEvent`, `SessionState`. Use `dataclasses` with type hints. PRD Section 8.1.
+- **Acceptance Criteria:**
+  - [x] All dataclasses implemented (MonitoredItem, RetailerAdapterConfig, CheckoutConfig, ShippingInfo, PaymentInfo, WebhookEvent, SessionState, DropWindow, CaptchaSolveResult, StockStatus)
+  - [x] All enums defined (CaptchaMode, CaptchaType, CheckoutStage, RetailerName)
+  - [x] Abstract RetailerAdapter base class with all abstract methods
+  - [x] Tests: 23 passed
+  - [x] mypy: no issues
 
 ---
 
