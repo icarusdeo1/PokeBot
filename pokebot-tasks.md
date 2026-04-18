@@ -446,12 +446,12 @@
 
 ---
 
-**CHECKOUT-T02**
+**CHECKOUT-T02** ✅ DONE
 - **Title:** Implement CheckoutFlow orchestrator
 - **Feature Area:** `bot/checkout/checkout_flow.py`
 - **Priority:** P0
 - **Complexity:** L
-- **Dependencies:** CHECKOUT-T01, PAYMENT-T01, SHIPPING-T01
+- **Dependencies:** CHECKOUT-T01, CHECKOUT-T03, SHIPPING-T01
 - **Description:** Implement `CheckoutFlow`: orchestrate multi-step checkout per retailer. Auto-fill shipping and payment from config. Handle order review step. Apply randomized human-like delay (300ms ±50ms). Submit order and capture confirmation number. Implement retry logic (configurable N, default 2). Handle all failure modes from PRD Section 12. PRD Sections 9.3 (CO-1 to CO-10).
 
 ---
