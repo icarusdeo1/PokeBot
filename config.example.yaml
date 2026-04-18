@@ -1,0 +1,107 @@
+# PokeDrop Bot Configuration Template
+# Copy this file to config.yaml and fill in your values.
+# DO NOT commit config.yaml to version control.
+
+# ─── Retailers ───
+# Each retailer needs credentials and monitoring settings.
+retailers:
+  target:
+    enabled: true
+    # Login credentials (or set via POKEDROP_TARGET_USERNAME / POKEDROP_TARGET_PASSWORD env vars)
+    username: ""
+    password: ""
+    # Monitored SKUs for this retailer
+    items:
+      - sku: "123456789"        # SKU to monitor
+        keyword: "pikachu"      # keyword fallback for detection
+        max_price: 100.00       # max price to auto-purchase (USD)
+        max_cart_quantity: 1    # max qty to add to cart
+  walmart:
+    enabled: false
+    username: ""
+    password: ""
+    items:
+      - sku: ""
+        keyword: ""
+        max_price: 100.00
+        max_cart_quantity: 1
+  bestbuy:
+    enabled: false
+    username: ""
+    password: ""
+    items:
+      - sku: ""
+        keyword: ""
+        max_price: 100.00
+        max_cart_quantity: 1
+
+# ─── Shipping ───
+shipping:
+  full_name: "Your Name"
+  address_line1: "123 Main St"
+  address_line2: ""
+  city: "Anytown"
+  state: "CA"
+  zip_code: "12345"
+  phone: "555-123-4567"
+
+# ─── Payment ───
+payment:
+  # Card details (or set via POKEDROP_CC_NUMBER / POKEDROP_CC_CVV env vars)
+  card_number: ""
+  expiry_month: "01"
+  expiry_year: "2027"
+  cvv: ""
+  billing_address_same_as_shipping: true
+  billing_address_line1: ""
+  billing_address_line2: ""
+  billing_city: ""
+  billing_state: ""
+  billing_zip_code: ""
+
+# ─── Notifications ───
+notifications:
+  discord_webhook_url: ""   # Set via POKEDROP_DISCORD_URL env var
+  telegram_bot_token: ""    # Set via POKEDROP_TELEGRAM_TOKEN env var
+  telegram_chat_id: ""      # Set via POKEDROP_TELEGRAM_CHAT_ID env var
+
+# ─── CAPTCHA ───
+captcha:
+  mode: "smart"             # "auto" | "manual" | "smart" (default)
+  2captcha_api_key: ""      # Set via POKEDROP_2CAPTCHA_KEY env var
+  daily_budget_usd: 5.00    # max daily spend on captcha solving
+  per_retailer_budget_override: {}  # e.g. {"target": 2.00}
+
+# ─── Drop Windows (optional scheduled drops) ───
+drop_windows: []
+  # - item: "Pikachu Plush"
+  #   retailer: "target"
+  #   drop_datetime: "2026-04-20T09:00:00-07:00"
+  #   prewarm_minutes: 15
+  #   enabled: true
+  #   max_cart_quantity: 1
+
+# ─── Multi-Account ───
+accounts: {}
+  # target:
+  #   - username: "account1@example.com"
+  #     password: "password1"
+  #   - username: "account2@example.com"
+  #     password: "password2"
+
+# ─── Evasion Settings ───
+evasion:
+  jitter_percent: 20        # ±20% random variance on check intervals
+  proxy_list: []            # List of proxy URLs (or set via POKEDROP_PROXY_LIST env var)
+                            # Format: ["http://user:pass@host:port", ...]
+
+# ─── Checkout Settings ───
+checkout:
+  retry_attempts: 2         # Number of retry attempts on checkout failure
+  human_delay_ms: 300       # Base delay for human-like behavior (ms)
+  max_human_delay_ms: 350   # Max random additional delay (ms)
+
+# ─── Monitoring ───
+monitoring:
+  stock_check_interval_seconds: 5   # Base interval between stock checks (before jitter)
+  prewarm_minutes_before_drop: 15   # Minutes before drop window to start pre-warming

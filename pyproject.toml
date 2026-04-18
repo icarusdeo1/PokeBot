@@ -1,0 +1,39 @@
+[project]
+name = "pokedrop-bot"
+version = "1.0.0"
+description = "High-speed auto-checkout bot for Pokemon merchandise drops"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27,<1.0",
+    "playwright>=1.40,<2.0",
+    "pyyaml>=6.0,<7.0",
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.27,<1.0",
+    "aiohttp>=3.9,<4.0",
+    "pytest>=8.0,<9.0",
+    "pytest-asyncio>=0.23,<1.0",
+    "mypy>=1.8,<2.0",
+    "argon2-cffi>=23.1,<24.0",
+    "responses>=0.25,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.8",
+    "responses>=0.25",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
