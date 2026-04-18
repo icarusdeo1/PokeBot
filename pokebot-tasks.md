@@ -627,13 +627,31 @@
 
 ---
 
-**AUTH-T01**
+**AUTH-T01** ✅ DONE
 - **Title:** Implement PIN/password authentication
 - **Feature Area:** `dashboard/auth.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** SHARED-T02
 - **Description:** Implement `dashboard/auth.py`: PIN/password login with argon2 hashing. Store hashed PIN in `auth.db`. Session cookie management (httpOnly, sameSite=strict). 8-hour inactivity expiry. Role enforcement: Operator (full access) vs Viewer (read-only). PRD Sections 5, 9.7 (DSH-15), 10.3 (Security).
+- **Acceptance Criteria:**
+  - [x] DashboardAuth class with argon2 PIN hashing (PasswordHasher with time_cost=2, memory_cost=65536)
+  - [x] operator_credentials table in auth.db with pin_hash and role
+  - [x] dashboard_sessions table with session_token, role, created_at, last_activity, expires_at
+  - [x] setup_initial_credentials() creates first credentials (fails if already exist)
+  - [x] verify_pin() with timing-safe argon2 comparison
+  - [x] change_pin() after verifying old PIN
+  - [x] is_setup_complete() check
+  - [x] create_session() with 8-hour TTL and DashboardSession dataclass
+  - [x] validate_session() with last_activity update and expiry check
+  - [x] invalidate_session() and cleanup_expired_sessions()
+  - [x] make_session_cookie() with httpOnly, sameSite=strict, configurable max_age
+  - [x] clear_session_cookie() for logout
+  - [x] UserRole enum: OPERATOR and VIEWER
+  - [x] SESSION_TTL_HOURS = 8, MIN_PIN_LENGTH = 6
+  - [x] SESSION_COOKIE_NAME = "pokedrop_session"
+  - [x] Tests: 35 passed (test_dashboard/test_auth.py)
+  - [x] mypy: no issues
 
 ---
 
