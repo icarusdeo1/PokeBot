@@ -1168,13 +1168,22 @@
 
 ---
 
-**CAPTCHA-T02**
+**CAPTCHA-T02** ✅ DONE
 - **Title:** Implement 2Captcha API integration
 - **Feature Area:** `bot/checkout/captcha.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** CAPTCHA-T01, SHARED-T04
 - **Description:** Implement 2Captcha integration: submit challenge with site key and page URL. Poll for solution with exponential backoff (max 120s timeout). Inject solution token into page. Log solve time in milliseconds. PRD Sections 9.4 (CAP-2, CAP-3, CAP-4, CAP-5).
+- **Acceptance Criteria:**
+  - [x] `solve_with_2captcha()`: submit to 2Captcha API, poll with exponential backoff (max 120s), return CaptchaSolveResult with token on success or error on failure
+  - [x] `inject_2captcha_token()`: fills g-recaptcha-response or h-captcha-response textarea, falls back to JS eval
+  - [x] `_build_2captcha_submit_url()`: builds correct method (userrecaptcha vs hcaptcha) per CAPTCHA type
+  - [x] `_build_2captcha_poll_url()`: builds polling URL with captcha ID
+  - [x] Handles API errors (submit failures, poll errors, timeouts) gracefully
+  - [x] Logs solve time in milliseconds
+  - [x] Tests: 36 passed
+  - [x] mypy: no issues
 
 ---
 
