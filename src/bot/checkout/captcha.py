@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from typing import Any, Callable
 from urllib.parse import quote
 from datetime import datetime, timezone
 
@@ -180,7 +181,7 @@ async def detect_captcha(page: Page) -> CaptchaDetectionResult:
 async def handle_manual_captcha(
     page: Page,
     captcha_type: CaptchaType,
-    webhook_callback: callable | None,
+    webhook_callback: Callable[..., Any] | None,
     timeout_seconds: int = 120,
     item: str = "",
     retailer: str = "",
@@ -213,7 +214,7 @@ async def handle_manual_captcha(
             event="CAPTCHA_PENDING_MANUAL",
             item=item,
             retailer=retailer,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             captcha_type=captcha_type.value,
             pause_url=page_url,
             error="",
@@ -339,13 +340,13 @@ class CaptchaBudgetTracker:
         if tracker.can_solve(retailer="target"):
             token = await solve_with_2captcha(...)
             tracker.record_solve(retailer="target", cost_usd=0.002)
-        tracker.log_daily_total()
+        tracker.emit_daily_spend()
     """
 
     daily_budget_usd: float
     per_retailer_override: dict[str, float]
     solve_time_alert_ms: int
-    log_daily_total: bool
+    _log_daily: bool
     _daily_spend_usd: float = field(default=0.0, init=False)
     _last_reset_date: str = field(default="", init=False)
 
@@ -355,7 +356,7 @@ class CaptchaBudgetTracker:
         daily_budget_usd: float = 5.0,
         per_retailer_override: dict[str, float] | None = None,
         solve_time_alert_ms: int = 60000,
-        log_daily_total: bool = True,
+        log_daily: bool = True,
     ) -> None:
         """Initialize tracker with config values.
 
@@ -364,12 +365,12 @@ class CaptchaBudgetTracker:
             daily_budget_usd: Global daily budget cap in USD.
             per_retailer_override: Mapping of retailer name → budget override.
             solve_time_alert_ms: Threshold for solve-time webhook alerts.
-            log_daily_total: Whether to log cumulative spend on shutdown.
+            log_daily: Whether to log cumulative spend on shutdown.
         """
         self.daily_budget_usd = daily_budget_usd
         self.per_retailer_override = per_retailer_override or {}
         self.solve_time_alert_ms = solve_time_alert_ms
-        self.log_daily_total = log_daily_total
+        self._log_daily = log_daily
         self._daily_spend_usd = 0.0
         self._last_reset_date = self._today_str()
 
@@ -426,14 +427,16 @@ class CaptchaBudgetTracker:
         """
         return solve_time_ms > self.solve_time_alert_ms
 
-    def log_daily_total(self) -> None:
+    def emit_daily_spend(self) -> None:
         """Log total daily spend to console (on bot shutdown)."""
         import logging
         logger = logging.getLogger("pokedrop")
         logger.info(
             "CAPTCHA_DAILY_SPEND",
-            daily_spend_usd=round(self._daily_spend_usd, 4),
-            daily_budget_usd=self.daily_budget_usd,
+            extra={
+                "daily_spend_usd": round(self._daily_spend_usd, 4),
+                "daily_budget_usd": self.daily_budget_usd,
+            },
         )
 
 
@@ -502,7 +505,7 @@ async def solve_with_2captcha(
     timeout_s: int = _SUBMIT_TIMEOUT_S,
     budget_tracker: CaptchaBudgetTracker | None = None,
     retailer: str | None = None,
-    webhook_callback: callable | None = None,
+    webhook_callback: Callable[..., Any] | None = None,
 ) -> CaptchaSolveResult:
     """Submit a CAPTCHA to 2Captcha and poll until solved or timeout.
 
@@ -540,7 +543,7 @@ async def solve_with_2captcha(
             webhook_event = WebhookEvent(
                 event="CAPTCHA_BUDGET_EXCEEDED",
                 retailer=retailer or "",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 error=f"Daily budget exceeded: ${budget_tracker.daily_budget_usd}",
             )
             try:
@@ -597,7 +600,7 @@ async def solve_with_2captcha(
                             if webhook_callback is not None:
                                 webhook_event = WebhookEvent(
                                     event="CAPTCHA_SOLVE_TIME_ALERT",
-                                    timestamp=datetime.now(timezone.utc),
+                                    timestamp=datetime.now(timezone.utc).isoformat(),
                                     error=f"Solve time {solve_time_ms}ms exceeded alert threshold {budget_tracker.solve_time_alert_ms}ms",
                                 )
                                 try:

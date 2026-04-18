@@ -344,7 +344,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from src.bot.checkout.captcha import (
     _build_2captcha_poll_url,
     _build_2captcha_submit_url,
+    _wait_for_captcha_resolved,
+    CaptchaBudgetTracker,
+    get_captcha_mode,
+    handle_manual_captcha,
     inject_2captcha_token,
+    should_auto_solve,
     solve_with_2captcha,
 )
 from src.shared.models import CaptchaSolveResult, CaptchaType
@@ -599,3 +604,372 @@ class TestInjectToken:
         )
 
         mock_page.evaluate.assert_called_once()
+
+
+# ── Manual CAPTCHA Mode Tests (CAP-8) ──────────────────────────────────────────
+
+
+class TestWaitForCaptchaResolved:
+    """Tests for _wait_for_captcha_resolved helper."""
+
+    @pytest.mark.asyncio
+    async def test_resolves_when_iframe_not_visible(self) -> None:
+        """_wait_for_captcha_resolved returns when CAPTCHA iframe is gone."""
+        mock_el = MagicMock()
+        mock_el.is_visible = AsyncMock(return_value=False)
+
+        mock_page = MagicMock()
+        mock_page.query_selector = AsyncMock(return_value=mock_el)
+
+        # Should return without raising
+        await _wait_for_captcha_resolved(mock_page)
+
+    @pytest.mark.asyncio
+    async def test_resolves_when_no_iframe_found(self) -> None:
+        """Returns immediately if no CAPTCHA iframe is found."""
+        mock_page = MagicMock()
+        mock_page.query_selector = AsyncMock(return_value=None)
+
+        await _wait_for_captcha_resolved(mock_page)
+
+    @pytest.mark.asyncio
+    async def test_resolves_on_page_exception(self) -> None:
+        """Returns without error if page.query_selector raises."""
+        mock_page = MagicMock()
+        mock_page.query_selector = AsyncMock(side_effect=RuntimeError("page closed"))
+
+        # Should not raise
+        await _wait_for_captcha_resolved(mock_page)
+
+
+class TestHandleManualCaptcha:
+    """Tests for handle_manual_captcha (CAP-8)."""
+
+    @pytest.mark.asyncio
+    async def test_success_when_captcha_resolved_within_timeout(self) -> None:
+        """Returns success=True when operator solves before timeout."""
+        mock_el = MagicMock()
+        mock_el.is_visible = AsyncMock(side_effect=[True, True, False])  # 2 polls then gone
+
+        mock_page = MagicMock()
+        mock_page.url = "https://target.com/checkout"
+        mock_page.query_selector = AsyncMock(return_value=mock_el)
+
+        mock_webhook = AsyncMock()
+
+        result = await handle_manual_captcha(
+            page=mock_page,
+            captcha_type=CaptchaType.RECAPTCHA_V2,
+            webhook_callback=mock_webhook,
+            timeout_seconds=30,
+            item="GPU",
+            retailer="target",
+        )
+
+        assert result.success is True
+        assert result.error == ""
+        assert result.solve_time_ms >= 0
+        # Token is empty for manual mode (operator solved in-browser)
+        assert result.token == ""
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_failure(self) -> None:
+        """Returns success=False when CAPTCHA is not solved within timeout."""
+        # CAPTCHA stays visible forever (模拟永不消失)
+        mock_el = MagicMock()
+        mock_el.is_visible = AsyncMock(return_value=True)
+
+        mock_page = MagicMock()
+        mock_page.url = "https://walmart.com/cart"
+        mock_page.query_selector = AsyncMock(return_value=mock_el)
+
+        result = await handle_manual_captcha(
+            page=mock_page,
+            captcha_type=CaptchaType.HCAPTCHA,
+            webhook_callback=None,
+            timeout_seconds=1,  # 1 second for fast test
+            item="PS5",
+            retailer="walmart",
+        )
+
+        assert result.success is False
+        assert "timed out" in result.error
+        assert result.solve_time_ms >= 1000
+
+    @pytest.mark.asyncio
+    async def test_fires_captcha_pending_manual_webhook(self) -> None:
+        """handle_manual_captcha fires CAPTCHA_PENDING_MANUAL webhook."""
+        mock_page = MagicMock()
+        mock_page.url = "https://bestbuy.com/item"
+        mock_page.query_selector = AsyncMock(return_value=None)  # immediately resolved
+
+        mock_webhook = AsyncMock()
+
+        await handle_manual_captcha(
+            page=mock_page,
+            captcha_type=CaptchaType.TURNSTILE,
+            webhook_callback=mock_webhook,
+            timeout_seconds=60,
+            item="Graphics Card",
+            retailer="bestbuy",
+        )
+
+        mock_webhook.assert_called_once()
+        call_args = mock_webhook.call_args[0][0]
+        assert call_args.event == "CAPTCHA_PENDING_MANUAL"
+        assert call_args.item == "Graphics Card"
+        assert call_args.retailer == "bestbuy"
+        assert call_args.captcha_type == "turnstile"
+        assert call_args.pause_url == "https://bestbuy.com/item"
+
+    @pytest.mark.asyncio
+    async def test_no_error_if_webhook_callback_is_none(self) -> None:
+        """handle_manual_captcha succeeds even if webhook_callback is None."""
+        mock_page = MagicMock()
+        mock_page.url = "https://example.com"
+        mock_page.query_selector = AsyncMock(return_value=None)
+
+        # Should not raise
+        result = await handle_manual_captcha(
+            page=mock_page,
+            captcha_type=CaptchaType.RECAPTCHA_V2,
+            webhook_callback=None,
+            timeout_seconds=5,
+        )
+
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_non_critical_webhook_error_does_not_block(self) -> None:
+        """Webhook errors are caught and ignored (non-critical path)."""
+        mock_page = MagicMock()
+        mock_page.url = "https://example.com"
+        mock_page.query_selector = AsyncMock(return_value=None)
+
+        broken_webhook = AsyncMock(side_effect=RuntimeError("network error"))
+
+        # Should not raise despite webhook failing
+        result = await handle_manual_captcha(
+            page=mock_page,
+            captcha_type=CaptchaType.RECAPTCHA_V2,
+            webhook_callback=broken_webhook,
+            timeout_seconds=5,
+        )
+
+        assert result.success is True
+
+
+# ── Smart CAPTCHA Routing Tests (CAP-9) ─────────────────────────────────────────
+
+
+class TestShouldAutoSolve:
+    """Tests for should_auto_solve (CAP-9 smart routing)."""
+
+    def test_manual_mode_always_returns_false(self) -> None:
+        """In manual mode, no CAPTCHA type is auto-solved."""
+        result = should_auto_solve(
+            captcha_type=CaptchaType.TURNSTILE,
+            mode="manual",
+            budget_tracker=None,
+        )
+        assert result is False
+
+        result = should_auto_solve(
+            captcha_type=CaptchaType.RECAPTCHA_V2,
+            mode="manual",
+            budget_tracker=None,
+        )
+        assert result is False
+
+        result = should_auto_solve(
+            captcha_type=CaptchaType.HCAPTCHA,
+            mode="manual",
+            budget_tracker=None,
+        )
+        assert result is False
+
+    def test_auto_mode_uses_budget_tracker(self) -> None:
+        """In auto mode, budget tracker determines whether to solve."""
+        mock_tracker = MagicMock()
+        mock_tracker.can_solve.return_value = True
+
+        result = should_auto_solve(
+            captcha_type=CaptchaType.RECAPTCHA_V2,
+            mode="auto",
+            budget_tracker=mock_tracker,
+            retailer="target",
+        )
+        assert result is True
+        mock_tracker.can_solve.assert_called_once_with("target")
+
+    def test_auto_mode_blocks_when_over_budget(self) -> None:
+        """In auto mode, returns False when budget exceeded."""
+        mock_tracker = MagicMock()
+        mock_tracker.can_solve.return_value = False
+
+        result = should_auto_solve(
+            captcha_type=CaptchaType.RECAPTCHA_V2,
+            mode="auto",
+            budget_tracker=mock_tracker,
+        )
+        assert result is False
+
+    def test_smart_mode_turnstile_auto_solves(self) -> None:
+        """Smart mode: Turnstile is auto-solved (low cost, high pass rate)."""
+        mock_tracker = MagicMock()
+        mock_tracker.can_solve.return_value = True
+
+        result = should_auto_solve(
+            captcha_type=CaptchaType.TURNSTILE,
+            mode="smart",
+            budget_tracker=mock_tracker,
+        )
+        assert result is True
+
+    def test_smart_mode_turnstile_blocks_when_over_budget(self) -> None:
+        """Smart mode: Turnstile blocked when budget exceeded."""
+        mock_tracker = MagicMock()
+        mock_tracker.can_solve.return_value = False
+
+        result = should_auto_solve(
+            captcha_type=CaptchaType.TURNSTILE,
+            mode="smart",
+            budget_tracker=mock_tracker,
+        )
+        assert result is False
+
+    def test_smart_mode_recaptcha_routes_to_manual(self) -> None:
+        """Smart mode: reCAPTCHA v2 is routed to manual mode (operator alert)."""
+        mock_tracker = MagicMock()  # should NOT be called
+
+        result = should_auto_solve(
+            captcha_type=CaptchaType.RECAPTCHA_V2,
+            mode="smart",
+            budget_tracker=mock_tracker,
+        )
+        assert result is False
+        mock_tracker.can_solve.assert_not_called()
+
+    def test_smart_mode_hcaptcha_routes_to_manual(self) -> None:
+        """Smart mode: hCaptcha is routed to manual mode (operator alert)."""
+        result = should_auto_solve(
+            captcha_type=CaptchaType.HCAPTCHA,
+            mode="smart",
+            budget_tracker=None,
+        )
+        assert result is False
+
+
+class TestGetCaptchaMode:
+    """Tests for get_captcha_mode (CAP-9)."""
+
+    def test_returns_configured_mode(self) -> None:
+        """Returns the mode configured on the captcha config object."""
+        mock_config = MagicMock()
+        mock_config.captcha.mode = "manual"
+
+        result = get_captcha_mode(mock_config)
+        assert result == "manual"
+
+    def test_defaults_to_smart(self) -> None:
+        """Returns 'smart' when no mode is explicitly configured."""
+        mock_config = MagicMock()
+        del mock_config.captcha.mode  # attribute not set
+
+        result = get_captcha_mode(mock_config)
+        assert result == "smart"
+
+
+# ── CAPTCHA Budget Tracker Tests (CAP-7) ────────────────────────────────────────
+
+
+class TestCaptchaBudgetTracker:
+    """Tests for CaptchaBudgetTracker (CAP-7)."""
+
+    def test_can_solve_under_budget(self) -> None:
+        """can_solve returns True when under daily budget."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            daily_budget_usd=5.0,
+        )
+        assert tracker.can_solve(retailer=None) is True
+
+    def test_can_solve_over_budget(self) -> None:
+        """can_solve returns False once daily budget is exceeded."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            daily_budget_usd=1.0,
+        )
+        tracker.record_solve(retailer=None, cost_usd=1.0)
+        # Now at budget limit
+        assert tracker.can_solve(retailer=None) is False
+
+    def test_record_solve_tracks_spend(self) -> None:
+        """record_solve increments the daily spend counter."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            daily_budget_usd=5.0,
+        )
+        tracker.record_solve(retailer=None, cost_usd=0.5)
+        tracker.record_solve(retailer=None, cost_usd=0.5)
+        # Spent $1.00, still under $5.00 budget
+        assert tracker.can_solve(retailer=None) is True
+
+    def test_should_alert_solve_time_above_threshold(self) -> None:
+        """should_alert_solve_time returns True when threshold exceeded."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            solve_time_alert_ms=30000,
+        )
+        assert tracker.should_alert_solve_time(solve_time_ms=45000) is True
+
+    def test_should_alert_solve_time_below_threshold(self) -> None:
+        """should_alert_solve_time returns False when under threshold."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            solve_time_alert_ms=30000,
+        )
+        assert tracker.should_alert_solve_time(solve_time_ms=15000) is False
+
+    def test_per_retailer_budget_override(self) -> None:
+        """Per-retailer override allows different budget per retailer."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            daily_budget_usd=5.0,
+            per_retailer_override={"target": 1.0},
+        )
+        # Target has $1 budget
+        tracker.record_solve(retailer="target", cost_usd=1.0)
+        assert tracker.can_solve(retailer="target") is False
+        # Walmart has $5 budget
+        assert tracker.can_solve(retailer="walmart") is True
+
+    def test_daily_reset_clears_spend(self) -> None:
+        """Daily spend is reset when the day changes."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            daily_budget_usd=1.0,
+        )
+        # Exhaust budget
+        tracker.record_solve(retailer=None, cost_usd=1.0)
+        assert tracker.can_solve(retailer=None) is False
+
+        # Simulate day rollover by patching _today_str
+        original = tracker._today_str
+        tracker._today_str = lambda: "2099-01-01"  # different day
+        tracker._check_daily_reset()
+
+        # Budget should be reset
+        assert tracker.can_solve(retailer=None) is True
+        tracker._today_str = original
+
+    def test_log_daily_total_runs_without_error(self) -> None:
+        """log_daily_total logs without raising (uses logging.getLogger)."""
+        tracker = CaptchaBudgetTracker(
+            captcha_config=MagicMock(),
+            daily_budget_usd=5.0,
+            log_daily=True,
+        )
+        tracker.record_solve(retailer=None, cost_usd=0.5)
+        # Should not raise
+        tracker.emit_daily_spend()
