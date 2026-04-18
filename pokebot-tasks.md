@@ -1397,13 +1397,23 @@
 
 ---
 
-**MAC-T02**
+**MAC-T02** ✅ DONE
 - **Title:** Implement item-to-account assignment
 - **Feature Area:** `bot/monitor/stock_monitor.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** MAC-T01
 - **Description:** Items can be assigned to specific account(s) or spread round-robin across available accounts. Implement assignment logic. PRD Section 9.10 (MAC-2).
+- **Acceptance Criteria:**
+  - [x] `AccountAssigner` class in `bot/monitor/account_assignment.py`
+  - [x] `get_accounts_for_item(item, retailer)` returns all eligible accounts
+  - [x] `get_single_account_for_item(item, retailer)` returns single best account
+  - [x] Rule 1: accounts with `item_filter` matching item name take priority
+  - [x] Rule 2: accounts with `round_robin=True` rotate across calls (round-robin state tracked per retailer)
+  - [x] Rule 3: fallback to all enabled accounts if no item_filter/round_robin match
+  - [x] `reset_round_robin()` clears rotation state
+  - [x] Tests: 13 passed
+  - [x] mypy: no issues
 
 ---
 
