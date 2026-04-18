@@ -405,13 +405,22 @@
 
 ---
 
-**NOTIF-T03**
+**NOTIF-T03** ✅ DONE
 - **Title:** Implement generic Webhook base class
 - **Feature Area:** `bot/notifications/webhook.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T05
 - **Description:** Create base `WebhookClient` class with retry logic (exponential backoff, 3 retries), event queuing, HTTPS URL validation. Both Discord and Telegram inherit from this. PRD Sections 9.6 (NOT-3, NOT-4).
+- **Acceptance Criteria:**
+  - [x] WebhookClient abstract base class with HTTPS URL validation (rejects non-HTTPS, SEC-T03)
+  - [x] Exponential backoff retry (default 3 retries) for failed deliveries
+  - [x] In-memory event queue (max 1000 events, drops oldest when full) for network outages
+  - [x] Async HTTP delivery via aiohttp with configurable timeout
+  - [x] flush_queue() to retry queued events on next call
+  - [x] ISO-8601 timestamp injection when event.timestamp is empty
+  - [x] Tests: 31 passed
+  - [x] mypy: no issues
 
 ---
 
