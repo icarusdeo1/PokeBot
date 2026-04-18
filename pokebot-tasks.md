@@ -1575,13 +1575,20 @@
 
 ---
 
-**ABOUT-T01**
+**ABOUT-T01** ✅ DONE
 - **Title:** Implement dashboard About page with adapter plugin list
 - **Feature Area:** `dashboard/templates/index.html`
 - **Priority:** P1
 - **Complexity:** S
 - **Dependencies:** ADAPTER-T05
 - **Description:** Implement "About" page listing all loaded retailer adapter plugins: name, version, enabled/disabled status. PRD Section 9.15 (ADP-5).
+- **Completed:** 2026-04-18 (commit fa64608)
+- **Implementation:**
+  - `src/dashboard/routes/adapters.py`: New route `GET /api/adapters/` that returns list of loaded adapter plugins (name, version, enabled, module) via `AdapterRegistry.retailer_names()`
+  - `src/dashboard/server.py`: Added `/api/adapters/` endpoint wired to `adapters_list_route()`
+  - `src/dashboard/templates/index.html`: Added "About" nav tab with `loadAbout()` JS function, adapter table with name/version/module/status columns, and system info panel showing adapter count
+  - Tests: 5 passed (`test_adapters.py`)
+  - mypy: clean on all changed files
 
 ---
 
