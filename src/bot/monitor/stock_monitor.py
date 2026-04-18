@@ -80,6 +80,7 @@ class StockMonitor:
         logger: Logger,
         checkout_flow: CheckoutFlow,
         session_prewarmer: SessionPrewarmer,
+        webhook_callback: Any = None,
     ) -> None:
         """Initialize the StockMonitor.
 
@@ -88,11 +89,15 @@ class StockMonitor:
             logger: Logger instance for structured event logging.
             checkout_flow: CheckoutFlow instance for checkout orchestration.
             session_prewarmer: SessionPrewarmer instance for session management.
+            webhook_callback: Optional async callable that receives WebhookEvent objects
+                for DROP_WINDOW events. Typically a DiscordWebhook.send or
+                TelegramWebhook.send method. Defaults to None (no webhook delivery).
         """
         self.config = config
         self.logger = logger
         self.checkout_flow = checkout_flow
         self.session_prewarmer = session_prewarmer
+        self._webhook_callback: Any = webhook_callback
 
         # Active monitoring tasks per item/retailer
         self._monitor_tasks: dict[str, asyncio.Task[None]] = {}
@@ -778,7 +783,28 @@ class StockMonitor:
             dw_key = f"{retailer}:{item}:{drop_datetime_str}"
 
 
-            # ── PREWARM_URGENT: within 5 minutes and not prewarmed ──
+            # ── DROP_WINDOW_OPEN: drop time has arrived ──
+            if minutes_until_drop <= 0:
+                # Drop time reached or past — fire webhook and disable window
+                self.logger.warning(
+                    "DROP_WINDOW_OPEN",
+                    item=item,
+                    retailer=retailer,
+                    reason="Drop window is now open!",
+                )
+                await self._fire_webhook_event(
+                    event="DROP_WINDOW_OPEN",
+                    item=item,
+                    retailer=retailer,
+                    reason="Drop window is now open!",
+                )
+                # Remove from tracking and disable so this window stops firing every 30s
+                if dw_key in self._prewarmed_windows:
+                    del self._prewarmed_windows[dw_key]
+                dw["enabled"] = False
+                continue
+
+            # ── PREWARM_URGENT: within 5 min and not yet prewarmed ──
             if 0 < minutes_until_drop <= self._URGENT_PREWARM_MINUTES:
                 if dw_key not in self._prewarmed_windows:
                     self.logger.warning(
@@ -812,6 +838,14 @@ class StockMonitor:
                     retailer=retailer,
                     minutes_until_drop=int(minutes_until_drop),
                     prewarm_window_minutes=prewarm_minutes,
+                )
+
+                # Fire DROP_WINDOW_APPROACHING webhook (DWC-5)
+                await self._fire_webhook_event(
+                    event="DROP_WINDOW_APPROACHING",
+                    item=item,
+                    retailer=retailer,
+                    reason=f"Drop in {int(minutes_until_drop)} minutes — pre-warming session now",
                 )
 
                 # Trigger pre-warm via session_prewarmer
@@ -865,8 +899,12 @@ class StockMonitor:
         reason: str = "",
         **kwargs: Any,
     ) -> None:
-        """Fire a webhook event via the checkout_flow's webhook callback if available."""
-        if not hasattr(self.checkout_flow, "_webhook_callback") or self.checkout_flow._webhook_callback is None:
+        """Fire a webhook event via the configured webhook callback if available.
+
+        The callback is typically a DiscordWebhook.send or TelegramWebhook.send method.
+        If no callback is configured, the event is silently dropped (logged via logger).
+        """
+        if self._webhook_callback is None:
             return
         from src.shared.models import WebhookEvent
         now = datetime.now(timezone.utc)
@@ -877,7 +915,7 @@ class StockMonitor:
             timestamp=now.isoformat(),
             reason=reason,
         )
-        callback = self.checkout_flow._webhook_callback
+        callback = self._webhook_callback
         if asyncio.iscoroutinefunction(callback):
             await callback(webhook_event)
         else:

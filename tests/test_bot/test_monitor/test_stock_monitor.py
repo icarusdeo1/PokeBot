@@ -28,7 +28,7 @@ class TestableStockMonitor(StockMonitor):
 
     async def _get_adapter_for_retailer(self, retailer_name: str) -> Any:
         return self._test_adapter
-from src.shared.models import StockStatus
+from src.shared.models import StockStatus, WebhookEvent
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -101,6 +101,8 @@ def mock_checkout_flow():
             attempts=1,
         )
     )
+    # Mock webhook callback (used by StockMonitor._fire_webhook_event)
+    flow._webhook_callback = AsyncMock()
     return flow
 
 
@@ -1242,3 +1244,190 @@ class TestDropWindowScheduler:
         # Scheduler task should be cancelled/done
         task = monitor._drop_window_scheduler_task
         assert task is None or task.done()
+
+    # ── PHASE3-T04: DROP_WINDOW webhook events ──────────────────────────────────
+
+    async def test_check_drop_windows_fires_drop_window_open_when_drop_time_reached(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """When minutes_until_drop <= 0, DROP_WINDOW_OPEN fires and window stops firing."""
+        config_with_drop_windows.drop_windows = [
+            {
+                "item": "Pokemon Box",
+                "retailer": "target",
+                "drop_datetime": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+                "prewarm_minutes": 15,
+                "enabled": True,
+            }
+        ]
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+            webhook_callback=mock_checkout_flow._webhook_callback,
+        )
+        monitor._running = True
+        mock_adapter = MagicMock()
+        mock_adapter.name = "target"
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            await monitor._check_drop_windows()
+
+        # DROP_WINDOW_OPEN fires via webhook callback
+        mock_checkout_flow._webhook_callback.assert_called_once()
+        call_args = mock_checkout_flow._webhook_callback.call_args
+        from src.shared.models import WebhookEvent
+        assert isinstance(call_args[0][0], WebhookEvent)
+        assert call_args[0][0].event == "DROP_WINDOW_OPEN"
+        assert call_args[0][0].item == "Pokemon Box"
+        assert call_args[0][0].retailer == "target"
+        # Drop window key removed so it stops firing every 30s
+        dw_key = f"target:Pokemon Box:{config_with_drop_windows.drop_windows[0]['drop_datetime']}"
+        assert dw_key not in monitor._prewarmed_windows
+
+    async def test_check_drop_windows_fires_drop_window_approaching_when_within_prewarm_window(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """When 0 < minutes_until_drop <= prewarm_minutes, DROP_WINDOW_APPROACHING fires."""
+        config_with_drop_windows.drop_windows = [
+            {
+                "item": "Pokemon Box",
+                "retailer": "target",
+                "drop_datetime": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+                "prewarm_minutes": 15,
+                "enabled": True,
+            }
+        ]
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+            webhook_callback=mock_checkout_flow._webhook_callback,
+        )
+        monitor._running = True
+        mock_adapter = MagicMock()
+        mock_adapter.name = "target"
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            await monitor._check_drop_windows()
+
+        # DROP_WINDOW_APPROACHING fires via webhook callback (before prewarm)
+        mock_checkout_flow._webhook_callback.assert_called()
+        calls = mock_checkout_flow._webhook_callback.call_args_list
+        approx_events = [
+            c[0][0].event for c in calls
+            if isinstance(c[0][0], WebhookEvent) and c[0][0].event == "DROP_WINDOW_APPROACHING"
+        ]
+        assert "DROP_WINDOW_APPROACHING" in approx_events
+
+    async def test_check_drop_windows_drop_window_open_does_not_retrigger(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """Past drops fire DROP_WINDOW_OPEN once; subsequent checks don't re-fire."""
+        drop_dt = datetime.now(timezone.utc) - timedelta(minutes=1)
+        config_with_drop_windows.drop_windows = [
+            {
+                "item": "Pokemon Box",
+                "retailer": "target",
+                "drop_datetime": drop_dt.isoformat(),
+                "prewarm_minutes": 15,
+                "enabled": True,
+            }
+        ]
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+            webhook_callback=mock_checkout_flow._webhook_callback,
+        )
+        monitor._running = True
+        mock_adapter = MagicMock()
+        mock_adapter.name = "target"
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            # First call: fires DROP_WINDOW_OPEN
+            await monitor._check_drop_windows()
+        first_call_count = mock_checkout_flow._webhook_callback.call_count
+        assert first_call_count >= 1
+
+        # Reset mock
+        mock_checkout_flow._webhook_callback.reset_mock()
+
+        # Second call: window key not tracked, no new events
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            await monitor._check_drop_windows()
+        # No new webhook calls since window is not re-tracked
+        assert mock_checkout_flow._webhook_callback.call_count == 0
+
+    async def test_check_drop_windows_no_webhook_when_no_drop_windows_configured(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """When no drop_windows are configured, no webhooks fire."""
+        config_with_drop_windows.drop_windows = []
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+            webhook_callback=mock_checkout_flow._webhook_callback,
+        )
+        monitor._running = True
+
+        await monitor._check_drop_windows()
+
+        # No webhook calls
+        mock_checkout_flow._webhook_callback.assert_not_called()
+
+    async def test_check_drop_windows_drop_window_open_includes_correct_reason(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """DROP_WINDOW_OPEN webhook includes reason='Drop window is now open!'."""
+        config_with_drop_windows.drop_windows = [
+            {
+                "item": "Charizard Elite Box",
+                "retailer": "walmart",
+                "drop_datetime": (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat(),
+                "prewarm_minutes": 10,
+                "enabled": True,
+            }
+        ]
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+            webhook_callback=mock_checkout_flow._webhook_callback,
+        )
+        monitor._running = True
+        mock_adapter = MagicMock()
+        mock_adapter.name = "walmart"
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            await monitor._check_drop_windows()
+
+        mock_checkout_flow._webhook_callback.assert_called_once()
+        event = mock_checkout_flow._webhook_callback.call_args[0][0]
+        assert isinstance(event, WebhookEvent)
+        assert event.event == "DROP_WINDOW_OPEN"
+        assert event.item == "Charizard Elite Box"
+        assert event.retailer == "walmart"
+        assert event.reason == "Drop window is now open!"

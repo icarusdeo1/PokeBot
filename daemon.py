@@ -26,6 +26,53 @@ from src.bot.checkout.cart_manager import CartManager
 from src.bot.checkout.checkout_flow import CheckoutFlow
 from src.shared.crash_recovery import CrashRecovery
 from src.shared.db import DatabaseManager
+from src.shared.models import WebhookEvent
+
+
+def _build_webhook_callback(config: Config) -> Any:
+    """Build a combined webhook callback that sends to all configured notifiers.
+
+    Creates DiscordWebhook and/or TelegramWebhook instances based on config,
+    then returns an async callback that delivers events to all configured endpoints.
+    Returns None if no webhook URLs are configured.
+    """
+    clients: list[Any] = []
+
+    # Discord
+    if config.notifications.discord_webhook_url:
+        try:
+            from src.bot.notifications.discord import DiscordWebhook
+            clients.append(DiscordWebhook(config.notifications.discord_webhook_url))
+        except ValueError:
+            pass  # Invalid URL — skip
+
+    # Telegram
+    if config.notifications.telegram_bot_token and config.notifications.telegram_chat_id:
+        try:
+            from src.bot.notifications.telegram import TelegramWebhook
+            telegram_url = (
+                f"https://api.telegram.org/bot{config.notifications.telegram_bot_token}/sendMessage"
+            )
+            clients.append(
+                TelegramWebhook(
+                    webhook_url=telegram_url,
+                    chat_id=config.notifications.telegram_chat_id,
+                )
+            )
+        except ValueError:
+            pass  # Invalid token/chat_id — skip
+
+    if not clients:
+        return None
+
+    async def callback(event: WebhookEvent) -> None:
+        for client in clients:
+            try:
+                await client.send(event)
+            except Exception:
+                pass  # Best effort — don't fail one client due to another
+
+    return callback
 
 
 async def _run_monitor(monitor: StockMonitor) -> None:
@@ -83,12 +130,16 @@ async def _async_main(config_path: Path, logger: Logger) -> None:
     )
     logger.info("CHECKOUT_FLOW_INITIALIZED")
 
+    # Build webhook callback for DROP_WINDOW events (PHASE3-T04)
+    webhook_callback = _build_webhook_callback(config)
+
     # Initialize stock monitor
     monitor = StockMonitor(
         config=config,
         logger=logger,
         checkout_flow=checkout_flow,
         session_prewarmer=session_prewarmer,
+        webhook_callback=webhook_callback,
     )
 
     # Crash recovery — wrap main loop

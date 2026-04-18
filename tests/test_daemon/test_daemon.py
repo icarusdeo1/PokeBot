@@ -89,15 +89,21 @@ async def test_async_main_loads_config():
                                 mock_config = MagicMock()
                                 mock_config_cls.from_file.return_value = mock_config
 
-                                with patch("asyncio.create_task"):
-                                    mock_monitor.start = AsyncMock(
-                                        side_effect=asyncio.CancelledError()
-                                    )
+                                # Prevent _build_webhook_callback from trying to create
+                                # DiscordWebhook/TelegramWebhook with MagicMock config values
+                                with patch(
+                                    "daemon._build_webhook_callback",
+                                    MagicMock(return_value=None),
+                                ):
+                                    with patch("asyncio.create_task"):
+                                        mock_monitor.start = AsyncMock(
+                                            side_effect=asyncio.CancelledError()
+                                        )
 
-                                    try:
-                                        await _async_main(config_path, mock_logger)
-                                    except asyncio.CancelledError:
-                                        pass
+                                        try:
+                                            await _async_main(config_path, mock_logger)
+                                        except asyncio.CancelledError:
+                                            pass
 
                                 # Verify config was loaded
                                 mock_config_cls.from_file.assert_called_once_with(
@@ -152,10 +158,16 @@ async def test_async_main_initializes_all_components():
                                 mock_config = MagicMock()
                                 mock_config_cls.from_file.return_value = mock_config
 
-                                try:
-                                    await _async_main(config_path, mock_logger)
-                                except asyncio.CancelledError:
-                                    pass
+                                # Prevent _build_webhook_callback from trying to create
+                                # DiscordWebhook/TelegramWebhook with MagicMock config values
+                                with patch(
+                                    "daemon._build_webhook_callback",
+                                    MagicMock(return_value=None),
+                                ):
+                                    try:
+                                        await _async_main(config_path, mock_logger)
+                                    except asyncio.CancelledError:
+                                        pass
 
     # Verify all components were initialized
     mock_db_cls.assert_called_once()
@@ -218,19 +230,25 @@ async def test_signal_handlers_registered_on_start():
                                 mock_config = MagicMock()
                                 mock_config_cls.from_file.return_value = mock_config
 
-                                # Patch signal.signal in daemon module
-                                mock_sig = MagicMock(
-                                    return_value=stdlib_signal.SIG_DFL
-                                )
+                                # Prevent _build_webhook_callback from trying to create
+                                # DiscordWebhook/TelegramWebhook with MagicMock config values
                                 with patch(
-                                    "daemon.signal.signal", mock_sig
+                                    "daemon._build_webhook_callback",
+                                    MagicMock(return_value=None),
                                 ):
-                                    try:
-                                        await _async_main(
-                                            config_path, mock_logger
-                                        )
-                                    except BaseException:
-                                        pass
+                                    # Patch signal.signal in daemon module
+                                    mock_sig = MagicMock(
+                                        return_value=stdlib_signal.SIG_DFL
+                                    )
+                                    with patch(
+                                        "daemon.signal.signal", mock_sig
+                                    ):
+                                        try:
+                                            await _async_main(
+                                                config_path, mock_logger
+                                            )
+                                        except BaseException:
+                                            pass
 
     # Verify SIGTERM and SIGINT handlers were registered
     sig_calls = [
