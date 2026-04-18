@@ -1434,7 +1434,21 @@
 
 ---
 
-**MAC-T04**
+**MAC-T04** ✅ DONE
+- **Title:** Implement parallel account pre-warming
+- **Feature Area:** `bot/session/prewarmer.py`
+- **Priority:** P0
+- **Complexity:** S
+- **Dependencies:** SESSION-T01, MAC-T01
+- **Description:** Account-level session pre-warming runs in parallel across all configured accounts using async. PRD Section 9.10 (MAC-4).
+- **Acceptance Criteria:**
+  - [x] `prewarm_all_accounts()` uses `asyncio.gather()` for parallel execution across all enabled accounts
+  - [x] Reads enabled accounts from `config.accounts` (MAC-T01 structure)
+  - [x] Falls back to single-account primary credentials if no multi-account configured
+  - [x] Tests: 53 passed (test_prewarmer.py)
+  - [x] mypy: no issues
+
+---
 - **Title:** Implement parallel account pre-warming
 - **Feature Area:** `bot/session/prewarmer.py`
 - **Priority:** P0
