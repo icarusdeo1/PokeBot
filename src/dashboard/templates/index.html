@@ -347,6 +347,7 @@
       <button class="nav-btn" data-view="settings" onclick="showView('settings')">Settings</button>
       <button class="nav-btn" data-view="captcha" onclick="showView('captcha')">CAPTCHA</button>
       <button class="nav-btn" data-view="accounts" onclick="showView('accounts')">Accounts</button>
+      <button class="nav-btn" data-view="about" onclick="showView('about')">About</button>
     </div>
     <button class="btn btn-secondary btn-sm" onclick="handleLogout()">Logout</button>
   </div>
@@ -613,6 +614,21 @@
       </div>
     </div>
 
+    <!-- ── About Panel ─────────────────────── -->
+    <div id="view-about" class="view-section hidden">
+      <div class="section-header">
+        <h2 class="section-title">About</h2>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Loaded Adapter Plugins</div>
+        <div id="about-adapters-list">Loading...</div>
+      </div>
+      <div class="panel" style="margin-top:1rem;">
+        <div class="panel-title">System Info</div>
+        <div id="about-system-info">Loading...</div>
+      </div>
+    </div>
+
   </div><!-- /dash-body -->
   <div id="footer">PokeDrop Bot v1.0 &mdash; Running on <span id="runtime-version">—</span></div>
 </div><!-- /dashboard-view -->
@@ -750,6 +766,7 @@ function showView(name) {
   if (name === 'settings') loadSettings();
   if (name === 'calendar') loadDropWindows();
   if (name === 'accounts') loadAccounts();
+  if (name === 'about') loadAbout();
 }
 
 // ── Status ─────────────────────────────────────────────────────────────────────
@@ -1135,6 +1152,43 @@ async function loadAccounts() {
     }).join('');
   } catch (err) {
     console.error('Failed to load accounts:', err);
+  }
+}
+
+// ── About ─────────────────────────────────────────────────────────────────────────
+async function loadAbout() {
+  /** Load adapter plugins for About page via /api/adapters/. */
+  try {
+    const res = await api('/api/adapters/');
+    if (!res.ok) return;
+    const data = await res.json();
+    const adapters = data.adapters || [];
+    const el = document.getElementById('about-adapters-list');
+    if (!el) return;
+    if (!adapters.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;">No adapters loaded.</div>';
+      return;
+    }
+    el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border);"><th style="padding:.5rem">Adapter</th><th style="padding:.5rem">Version</th><th style="padding:.5rem">Module</th><th style="padding:.5rem">Status</th></tr></thead>' +
+      '<tbody>' +
+      adapters.map(a => `<tr style="border-bottom:1px solid var(--surface2)">` +
+        `<td style="padding:.5rem;font-family:monospace">${a.name}</td>` +
+        `<td style="padding:.5rem;color:var(--text-muted)">${a.version || '1.0'}</td>` +
+        `<td style="padding:.5rem;color:var(--text-muted);font-size:.875rem">${a.module || ''}</td>` +
+        `<td style="padding:.5rem"><span style="color:var(--success)">&#9679; Enabled</span></td>` +
+      `</tr>`).join('') +
+      '</tbody></table>';
+
+    const sysEl = document.getElementById('about-system-info');
+    if (sysEl) {
+      sysEl.innerHTML = '<div style="display:grid;gap:.5rem;">' +
+        `<div><strong>PokeDrop Bot</strong> — Dashboard v1.0</div>` +
+        `<div style="color:var(--text-muted);font-size:.875rem;">${adapters.length} retailer adapter${adapters.length !== 1 ? 's' : ''} loaded</div>` +
+      '</div>';
+    }
+  } catch (err) {
+    console.error('Failed to load about:', err);
   }
 }
 

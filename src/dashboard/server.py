@@ -39,6 +39,7 @@ from src.dashboard.routes.monitor import monitor_start_route, monitor_stop_route
 from src.dashboard.routes.dryrun import dryrun_route
 from src.dashboard.routes.health import health_route
 from src.dashboard.routes.daemon_restart import daemon_restart_route
+from src.dashboard.routes.adapters import adapters_list_route
 
 # ── Auth DB setup ──────────────────────────────────────────────────────────────
 _auth_db_path = Path(__file__).parent.parent.parent / "auth.db"
@@ -185,6 +186,11 @@ async def dryrun(_: Request) -> Any:
 @app.post("/api/daemon/restart", tags=["daemon"])
 async def daemon_restart(_: Request) -> Any:
     return await daemon_restart_route()
+
+
+@app.get("/api/adapters/", tags=["adapters"])
+async def adapters_list(_: Request) -> Any:
+    return await adapters_list_route()
 
 
 # ── SPA fallback (serve index.html for non-API routes) ────────────────────────
