@@ -228,6 +228,16 @@ class _MonitoringConfig:
     prewarm_minutes_before_drop: int = 15
 
 
+@dataclass
+class _AccountConfig:
+    """A single retailer account within the accounts: config section."""
+    username: str
+    password: str
+    enabled: bool = True
+    item_filter: list[str] = field(default_factory=list)  # assign to specific items
+    round_robin: bool = False  # participate in round-robin item assignment
+
+
 class Config:
     """Loaded and validated PokeDrop Bot configuration.
 
@@ -246,7 +256,7 @@ class Config:
         self.checkout = _CheckoutConfig()
         self.monitoring = _MonitoringConfig()
         self.drop_windows: list[dict[str, Any]] = []
-        self.accounts: dict[str, list[dict[str, Any]]] = {}
+        self.accounts: dict[str, list[_AccountConfig]] = {}  # retailer -> account list
 
     @classmethod
     def from_file(cls, path: Path | str) -> Config:
@@ -533,7 +543,70 @@ class Config:
                 dw_copy = {k: v for k, v in dw.items() if k != "_parsed_datetime"}
                 self.drop_windows.append(dw_copy)
 
-        self.accounts = self._raw.get("accounts", {}) or {}
+        # Validate and load multi-account config (MAC-T01 / MAC-1, MAC-6)
+        raw_accounts = self._raw.get("accounts", {}) or {}
+        for retailer, account_list in raw_accounts.items():
+            if retailer not in _RETAILERS:
+                errors.append(
+                    f"accounts.{retailer}: retailer must be one of {sorted(_RETAILERS)}, "
+                    f"got '{retailer}'"
+                )
+                continue
+            if not isinstance(account_list, list):
+                errors.append(
+                    f"accounts.{retailer}: must be a list of account blocks, "
+                    f"got {type(account_list).__name__}"
+                )
+                continue
+            for j, acct in enumerate(account_list):
+                if not isinstance(acct, dict):
+                    errors.append(
+                        f"accounts.{retailer}[{j}]: must be a mapping, "
+                        f"got {type(acct).__name__}"
+                    )
+                    continue
+                username = acct.get("username", "")
+                password = acct.get("password", "")
+                if not username:
+                    errors.append(f"accounts.{retailer}[{j}].username is required")
+                if not password:
+                    errors.append(f"accounts.{retailer}[{j}].password is required")
+                enabled = acct.get("enabled", True)
+                if not isinstance(enabled, bool):
+                    if isinstance(enabled, str):
+                        enabled = enabled.lower() in ("true", "1", "yes")
+                    else:
+                        errors.append(
+                            f"accounts.{retailer}[{j}].enabled must be a boolean"
+                        )
+                        enabled = True
+                item_filter = acct.get("item_filter", [])
+                if not isinstance(item_filter, list):
+                    errors.append(
+                        f"accounts.{retailer}[{j}].item_filter must be a list of item names"
+                    )
+                    item_filter = []
+                round_robin = acct.get("round_robin", False)
+                if not isinstance(round_robin, bool):
+                    if isinstance(round_robin, str):
+                        round_robin = round_robin.lower() in ("true", "1", "yes")
+                    else:
+                        errors.append(
+                            f"accounts.{retailer}[{j}].round_robin must be a boolean"
+                        )
+                        round_robin = False
+                # Build the typed account config
+                if retailer not in self.accounts:
+                    self.accounts[retailer] = []
+                self.accounts[retailer].append(
+                    _AccountConfig(
+                        username=str(username).strip(),
+                        password=str(password).strip(),
+                        enabled=enabled,
+                        item_filter=[str(x).strip() for x in item_filter],
+                        round_robin=round_robin,
+                    )
+                )
 
         if errors:
             raise ConfigError(errors)
@@ -566,6 +639,14 @@ class Config:
             masked["captcha"]["2captcha_api_key"] = _mask_str(
                 masked["captcha"]["2captcha_api_key"]
             )
+
+        # Mask accounts passwords (MAC-T01 / MAC-6)
+        if "accounts" in masked:
+            for retailer, account_list in masked["accounts"].items():
+                if isinstance(account_list, list):
+                    for acct in account_list:
+                        if isinstance(acct, dict) and "password" in acct:
+                            acct["password"] = "***"
 
         return masked
 

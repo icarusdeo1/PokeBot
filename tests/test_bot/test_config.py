@@ -695,3 +695,194 @@ class TestDropWindowPruning:
         path = write_config_file(tmp_path, config)
         cfg = Config.from_file(path)
         assert cfg.drop_windows == []
+
+# ── Multi-Account Config Tests (MAC-T01) ───────────────────────────────────────
+
+
+class TestAccountConfig:
+    """Tests for MAC-T01 multi-account config structure."""
+
+    def _config_with_accounts(self, accounts: dict) -> dict:
+        """Build a minimal config with accounts section."""
+        base = minimal_valid_config()
+        base["accounts"] = accounts
+        return base
+
+    def test_single_account_loaded(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [
+                {"username": "user1@example.com", "password": "pass1", "enabled": True}
+            ]
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert "target" in cfg.accounts
+        assert len(cfg.accounts["target"]) == 1
+        assert cfg.accounts["target"][0].username == "user1@example.com"
+        assert cfg.accounts["target"][0].password == "pass1"
+        assert cfg.accounts["target"][0].enabled is True
+        assert cfg.accounts["target"][0].item_filter == []
+        assert cfg.accounts["target"][0].round_robin is False
+
+    def test_multiple_accounts_per_retailer(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [
+                {"username": "user1@example.com", "password": "pass1", "enabled": True},
+                {"username": "user2@example.com", "password": "pass2", "enabled": False},
+            ],
+            "walmart": [
+                {"username": "wuser@example.com", "password": "wpass"},
+            ],
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert len(cfg.accounts["target"]) == 2
+        assert cfg.accounts["target"][0].username == "user1@example.com"
+        assert cfg.accounts["target"][1].username == "user2@example.com"
+        assert cfg.accounts["target"][1].enabled is False
+        assert len(cfg.accounts["walmart"]) == 1
+
+    def test_account_item_filter(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [
+                {
+                    "username": "user1@example.com",
+                    "password": "pass1",
+                    "item_filter": ["Charizard Box", "Pikachu Box"],
+                }
+            ]
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert cfg.accounts["target"][0].item_filter == ["Charizard Box", "Pikachu Box"]
+
+    def test_account_round_robin(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [
+                {"username": "user1@example.com", "password": "pass1", "round_robin": True}
+            ]
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert cfg.accounts["target"][0].round_robin is True
+
+    def test_invalid_retailer_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "amazon": [{"username": "user", "password": "pass"}]  # Not a valid retailer
+        })
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "accounts.amazon" in str(exc_info.value.errors[0])
+        assert "must be one of" in str(exc_info.value.errors[0])
+
+    def test_accounts_not_a_list_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": "not-a-list"  # Should be a list
+        })
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert "must be a list" in str(exc_info.value.errors[0])
+
+    def test_missing_username_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [{"password": "pass"}]  # Missing username
+        })
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert ".username is required" in str(exc_info.value.errors[0])
+
+    def test_missing_password_raises(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [{"username": "user"}]  # Missing password
+        })
+        path = write_config_file(tmp_path, config)
+        with pytest.raises(ConfigError) as exc_info:
+            Config.from_file(path)
+        assert ".password is required" in str(exc_info.value.errors[0])
+
+    def test_invalid_enabled_type_string(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [{"username": "user", "password": "pass", "enabled": "yes"}]
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        # String "yes" should be parsed as True
+        assert cfg.accounts["target"][0].enabled is True
+
+    def test_invalid_round_robin_type_string(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [{"username": "user", "password": "pass", "round_robin": "true"}]
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        # String "true" should be parsed as True
+        assert cfg.accounts["target"][0].round_robin is True
+
+    def test_empty_accounts_dict(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({})
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        assert cfg.accounts == {}
+
+    def test_accounts_key_missing(self, tmp_path: Path) -> None:
+        base = minimal_valid_config()
+        path = write_config_file(tmp_path, base)
+        cfg = Config.from_file(path)
+        assert cfg.accounts == {}
+
+    def test_account_password_masked_in_secrets(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [{"username": "user1@example.com", "password": "secretpass123"}]
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        masked = cfg.mask_secrets()
+        assert masked["accounts"]["target"][0]["password"] == "***"
+        # Original untyped raw should also be masked
+        # The mask_secrets works on the raw copy, so accounts section is masked
+        assert "secretpass" not in str(masked)
+
+
+class TestAccountConfigMasking:
+    """Tests for account password masking in mask_secrets (MAC-6 / SEC-T01)."""
+
+    def _config_with_accounts(self, accounts: dict) -> dict:
+        base = minimal_valid_config()
+        base["accounts"] = accounts
+        return base
+
+    def test_account_password_fully_masked(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [
+                {"username": "user1", "password": "mypassword123"},
+                {"username": "user2", "password": "anothersecret456"},
+            ],
+            "walmart": [
+                {"username": "wuser", "password": "walmartpass789"},
+            ],
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        masked = cfg.mask_secrets()
+        assert masked["accounts"]["target"][0]["password"] == "***"
+        assert masked["accounts"]["target"][1]["password"] == "***"
+        assert masked["accounts"]["walmart"][0]["password"] == "***"
+        # Make sure no actual passwords leak
+        for retailer in masked["accounts"]:
+            for acct in masked["accounts"][retailer]:
+                assert acct["password"] == "***"
+                assert "pass" not in acct["password"].lower()
+
+    def test_mask_does_not_modify_original_config(self, tmp_path: Path) -> None:
+        config = self._config_with_accounts({
+            "target": [{"username": "user1", "password": "secret123"}]
+        })
+        path = write_config_file(tmp_path, config)
+        cfg = Config.from_file(path)
+        _ = cfg.mask_secrets()
+        # The original account password should still be accessible in config
+        # mask_secrets returns a new dict, doesn't mutate config
+        assert cfg.accounts["target"][0].password == "secret123"
