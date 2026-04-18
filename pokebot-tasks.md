@@ -243,13 +243,25 @@
 
 ---
 
-**EVASION-T03**
+**EVASION-T03** ✅ DONE
 - **Title:** Implement proxy rotation
 - **Feature Area:** `bot/evasion/proxy.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** SHARED-T04
 - **Description:** Implement proxy rotation from residential proxy pool. Load proxy list from config. Rotate per request or per session. Handle proxy auth. Detect and retry on proxy failure. PRD Section 9.5 (EV-4).
+- **Acceptance Criteria:**
+  - [x] ProxyConfig dataclass with host/port/username/password
+  - [x] ProxyPool with random and round-robin rotation
+  - [x] Proxy auth support (host:port:user:pass format)
+  - [x] Failure count tracking with max_failures threshold
+  - [x] Exponential backoff on proxy failure
+  - [x] `as_httpx_proxy()` converts to httpx.Proxy with auth
+  - [x] `from_config()` factory from Config object
+  - [x] `proxy_health_check()` async check
+  - [x] `check_and_retry_proxy()` with backoff
+  - [x] Tests: 18 passed
+  - [x] mypy: no issues
 
 ---
 
