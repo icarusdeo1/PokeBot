@@ -222,13 +222,24 @@
 
 ---
 
-**EVASION-T02**
+**EVASION-T02** ✅ DONE
 - **Title:** Implement Playwright fingerprint randomization
 - **Feature Area:** `bot/evasion/fingerprint.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** SHARED-T01
 - **Description:** Implement `bot/evasion/fingerprint.py`: randomize viewport (width, height), timezone, locale, hardware concurrency, device memory. Configure Playwright stealth mode to hide automation signals. PRD Section 9.5 (EV-2).
+- **Acceptance Criteria:**
+  - [x] BrowserFingerprint dataclass with viewport, locale, timezone_id, user_agent, hardware_concurrency, device_memory, device_scale_factor
+  - [x] Viewport pool: ≥10 realistic desktop/mobile viewport sizes
+  - [x] Locale pool: ≥10 real browser locales (en-*, de-*, fr-*, etc.)
+  - [x] Timezone pool: ≥10 IANA timezone IDs
+  - [x] Hardware concurrency pool: multiple realistic CPU core counts
+  - [x] Device memory pool: multiple realistic memory values in GB
+  - [x] get_random_fingerprint() generates all randomized values from pools
+  - [x] get_automation_mask_script() injects JS to spoof: navigator.webdriver=false, navigator.hardwareConcurrency, navigator.deviceMemory, Permissions API, connection info, canvas noise
+  - [x] Tests: 31 passed
+  - [x] mypy: no issues
 
 ---
 
