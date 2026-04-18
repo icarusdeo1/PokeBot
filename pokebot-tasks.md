@@ -385,13 +385,22 @@
 
 ---
 
-**NOTIF-T01**
+**NOTIF-T01** ✅ DONE
 - **Title:** Implement Discord webhook notifications
 - **Feature Area:** `bot/notifications/discord.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T05
 - **Description:** Implement `DiscordWebhook`: send POST to Discord webhook URL with embed-formatted payload. Include ISO-8601 timestamp and event type. Implement retry with exponential backoff (up to 3 retries). Queue events if network unavailable. Fire all events from PRD Section 8.2 webhook catalog. PRD Sections 9.6 (NOT-1, NOT-3, NOT-4, NOT-6).
+- **Acceptance Criteria:**
+  - [x] DiscordWebhook extends WebhookClient with HTTPS URL validation
+  - [x] Color-coded Discord embeds per event type (green=success, red=failure, yellow=warning)
+  - [x] Rich embed titles, descriptions, and fields for all PRD Section 8.2 event types
+  - [x] ISO-8601 timestamps in embed when event.timestamp is set
+  - [x] Footer with event type on all embeds
+  - [x] All 29 documented event types covered in _COLOR_MAP and _TITLE_MAP
+  - [x] Tests: 23 passed
+  - [x] mypy: no issues
 
 ---
 
