@@ -1379,13 +1379,21 @@
 
 ---
 
-**MAC-T01**
+**MAC-T01** ✅ DONE
 - **Title:** Implement multi-account config structure
 - **Feature Area:** `bot/config.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T04
 - **Description:** Extend config to support multiple retailer accounts per retailer under `accounts:`. Each account stored as separate config block with credentials. PRD Sections 9.10 (MAC-1, MAC-6).
+- **Acceptance Criteria:**
+  - [x] `_AccountConfig` dataclass with username, password, enabled, item_filter, round_robin fields
+  - [x] `Config.accounts` typed as `dict[str, list[_AccountConfig]]` (retailer → accounts)
+  - [x] Validation: retailer must be one of target/walmart/bestbuy, accounts must be a list, each account needs username and password
+  - [x] `item_filter` (list of item names) and `round_robin` (bool) supported per account
+  - [x] Account passwords masked as `***` in `mask_secrets()` output
+  - [x] Tests: 91 passed (76 existing + 15 new for MAC-T01)
+  - [x] mypy: no issues
 
 ---
 
