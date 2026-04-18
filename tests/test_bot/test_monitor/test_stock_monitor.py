@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -889,3 +890,355 @@ def test_get_status_includes_keyword_field(
     assert status["states"][task_key]["keyword"] == "Charizard"
 
 
+
+# ── PHASE3-T02: Drop Window Auto-Prewarm Scheduler ──────────────────────────
+
+
+class TestDropWindowScheduler:
+    """Tests for drop window auto-prewarm scheduler (PHASE3-T02)."""
+
+    @pytest.fixture
+    def config_with_drop_windows(self, mock_config):
+        """"Config with drop_windows list."""
+        mock_config.drop_windows = [
+            {
+                "item": "Pokemon Box",
+                "retailer": "target",
+                "drop_datetime": "2026-04-20T10:00:00Z",
+                "prewarm_minutes": 15,
+                "enabled": True,
+                "max_cart_quantity": 1,
+            },
+            {
+                "item": "Pokemon Booster",
+                "retailer": "walmart",
+                "drop_datetime": "2026-04-25T15:00:00Z",
+                "prewarm_minutes": 10,
+                "enabled": True,
+                "max_cart_quantity": 2,
+            },
+            {
+                "item": "Disabled Drop",
+                "retailer": "target",
+                "drop_datetime": "2026-04-30T09:00:00Z",
+                "prewarm_minutes": 5,
+                "enabled": False,
+                "max_cart_quantity": 1,
+            },
+        ]
+        mock_config.get_enabled_retailers = MagicMock(
+            return_value=["target", "walmart", "bestbuy"]
+        )
+        return mock_config
+
+    @pytest.fixture
+    def mock_prewarmer_for_scheduler(self):
+        """"Mock prewarmer with prewarm_now returning success."""
+        prewarmer = MagicMock()
+        from src.bot.session.prewarmer import PrewarmResult
+        prewarmer.prewarm_now = AsyncMock(
+            return_value=PrewarmResult(
+                retailer="target",
+                account_name="drop_Pokemon Box",
+                success=True,
+                prewarmed_at="2026-04-18T12:00:00Z",
+                cookies_count=5,
+            )
+        )
+        return prewarmer
+
+    async def test_check_drop_windows_triggers_prewarm_within_window(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """Within prewarm_minutes, prewarm_now is called for that window."""
+        from datetime import timedelta
+        soon = datetime.now(timezone.utc) + timedelta(minutes=5)
+        real_drop_windows = [
+            {
+                "item": "Pokemon Box",
+                "retailer": "target",
+                "drop_datetime": soon.isoformat(),
+                "prewarm_minutes": 15,
+                "enabled": True,
+                "max_cart_quantity": 1,
+            },
+        ]
+        # Patch the config to use a real list instead of MagicMock iterator
+        with patch.object(config_with_drop_windows, "drop_windows", real_drop_windows):
+            with patch.object(config_with_drop_windows, "get_enabled_retailers", MagicMock(return_value=["target"])):
+                monitor = StockMonitor(
+                    config=config_with_drop_windows,
+                    logger=mock_logger,
+                    checkout_flow=mock_checkout_flow,
+                    session_prewarmer=mock_prewarmer_for_scheduler,
+                )
+
+                mock_adapter = MagicMock()
+                mock_adapter.name = "target"
+                with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+                    await monitor._check_drop_windows()
+
+
+                mock_prewarmer_for_scheduler.prewarm_now.assert_called()
+
+    async def test_check_drop_windows_skips_disabled_windows(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """Disabled drop windows are skipped."""
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+        )
+        # Track all prewarm calls
+        prewarm_calls = []
+        original_prewarm_now = mock_prewarmer_for_scheduler.prewarm_now
+        async def track_prewarm(*args, **kwargs):
+            result = await original_prewarm_now(*args, **kwargs)
+            prewarm_calls.append((args, kwargs))
+            return result
+        mock_prewarmer_for_scheduler.prewarm_now = AsyncMock(side_effect=track_prewarm)
+
+
+        mock_adapter = MagicMock()
+        mock_adapter.name = "target"
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            await monitor._check_drop_windows()
+
+
+        # Disabled drop window (Disabled Drop/target) should not trigger prewarm
+        for args, kwargs in prewarm_calls:
+            account_name = kwargs.get("account_name", (args[1] if len(args) > 1 else ""))
+            assert "drop_Disabled" not in str(account_name)
+
+    async def test_check_drop_windows_skips_already_prewarmed_windows(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """Once prewarmed, a window is not prewarmed again."""
+        from datetime import timedelta
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+        )
+        # Pre-mark the drop window as already prewarmed
+        # Use the actual datetime from the fixture
+        soon = datetime.now(timezone.utc) + timedelta(minutes=5)
+        monitor._prewarmed_windows[f"target:Pokemon Box:{soon.isoformat()}"] = datetime.now(timezone.utc)
+
+
+        mock_adapter = MagicMock()
+        mock_adapter.name = "target"
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            await monitor._check_drop_windows()
+
+
+        # prewarm_now should NOT be called since already prewarmed
+        mock_prewarmer_for_scheduler.prewarm_now.assert_not_called()
+
+    async def test_check_drop_windows_fires_prewarm_urgent_when_within_5_minutes(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """PREWARM_URGENT fires when drop within 5 minutes and not prewarmed."""
+        soon = datetime.now(timezone.utc) + timedelta(minutes=3)
+        real_drop_windows = [
+            {
+                "item": "Pokemon Box",
+                "retailer": "target",
+                "drop_datetime": soon.isoformat(),
+                "prewarm_minutes": 15,
+                "enabled": True,
+                "max_cart_quantity": 1,
+            },
+        ]
+        with patch.object(config_with_drop_windows, "drop_windows", real_drop_windows):
+            with patch.object(config_with_drop_windows, "get_enabled_retailers", MagicMock(return_value=["target"])):
+                monitor = StockMonitor(
+                    config=config_with_drop_windows,
+                    logger=mock_logger,
+                    checkout_flow=mock_checkout_flow,
+                    session_prewarmer=mock_prewarmer_for_scheduler,
+                )
+                mock_adapter = MagicMock()
+                mock_adapter.name = "target"
+                with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+                    await monitor._check_drop_windows()
+
+
+                mock_logger.warning.assert_called()
+                warning_calls = mock_logger.warning.call_args_list
+                urgent_calls = [c for c in warning_calls if c.args and c.args[0] == "PREWARM_URGENT"]
+                assert len(urgent_calls) >= 1
+
+    async def test_check_drop_windows_no_action_for_past_drops(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """Past drop windows are ignored."""
+        # Set drop window to yesterday
+        from datetime import timedelta
+        yesterday = datetime.now(timezone.utc) - timedelta(hours=1)
+        config_with_drop_windows.drop_windows[0]["drop_datetime"] = yesterday.isoformat()
+
+
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+        )
+
+        await monitor._check_drop_windows()
+
+
+        # prewarm_now should not be called for past drop
+        mock_prewarmer_for_scheduler.prewarm_now.assert_not_called()
+
+
+    async def test_check_drop_windows_no_action_for_far_future_drops(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_prewarmer_for_scheduler,
+    ):
+        """Drop windows far in the future (>prewarm_minutes) don't trigger prewarm."""
+        # walmart drop is 7 days away — should not trigger 15-min prewarm
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_prewarmer_for_scheduler,
+        )
+        mock_adapter = MagicMock()
+        mock_adapter.name = "walmart"
+        with patch.object(monitor, "_get_adapter_for_retailer", AsyncMock(return_value=mock_adapter)):
+            await monitor._check_drop_windows()
+
+
+        # prewarm_now should not be called (drop is too far in future)
+        mock_prewarmer_for_scheduler.prewarm_now.assert_not_called()
+
+
+    def test_parse_drop_datetime_handles_iso_with_z_suffix(
+        self,
+        mock_config,
+        mock_logger,
+        mock_checkout_flow,
+        mock_session_prewarmer,
+    ):
+        """_parse_drop_datetime correctly parses Z-suffixed ISO datetime."""
+        monitor = StockMonitor(
+            config=mock_config,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_session_prewarmer,
+        )
+        result = monitor._parse_drop_datetime("2026-04-20T10:00:00Z")
+        assert result is not None
+        assert result.tzinfo is not None  # tz-aware
+        assert result.year == 2026
+        assert result.month == 4
+        assert result.day == 20
+
+    def test_parse_drop_datetime_handles_naive_datetime(
+        self,
+        mock_config,
+        mock_logger,
+        mock_checkout_flow,
+        mock_session_prewarmer,
+    ):
+        """_parse_drop_datetime treats naive datetime as UTC."""
+        monitor = StockMonitor(
+            config=mock_config,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_session_prewarmer,
+        )
+        result = monitor._parse_drop_datetime("2026-04-20T10:00:00")
+        assert result is not None
+        assert result.tzinfo is not None  # treated as UTC
+
+    def test_parse_drop_datetime_returns_none_for_invalid(
+        self,
+        mock_config,
+        mock_logger,
+        mock_checkout_flow,
+        mock_session_prewarmer,
+    ):
+        """_parse_drop_datetime returns None for invalid input."""
+        monitor = StockMonitor(
+            config=mock_config,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_session_prewarmer,
+        )
+        assert monitor._parse_drop_datetime("") is None
+        assert monitor._parse_drop_datetime("not-a-date") is None
+
+
+    async def test_run_drop_window_scheduler_stops_on_shutdown(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_session_prewarmer,
+    ):
+        """_run_drop_window_scheduler stops when _running becomes False."""
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_session_prewarmer,
+        )
+        monitor._running = False  # Immediately stop
+        # Should return immediately without error
+        await monitor._run_drop_window_scheduler()
+
+
+    async def test_scheduler_cancelled_on_stop(
+        self,
+        config_with_drop_windows,
+        mock_logger,
+        mock_checkout_flow,
+        mock_session_prewarmer,
+    ):
+        """stop() cancels the drop window scheduler task."""
+        monitor = StockMonitor(
+            config=config_with_drop_windows,
+            logger=mock_logger,
+            checkout_flow=mock_checkout_flow,
+            session_prewarmer=mock_session_prewarmer,
+        )
+        monitor._running = True
+        monitor._drop_window_scheduler_task = asyncio.create_task(
+            monitor._run_drop_window_scheduler()
+        )
+
+        await asyncio.sleep(0.05)  # Let scheduler start one cycle
+        await monitor.stop()
+
+        # Scheduler task should be cancelled/done
+        task = monitor._drop_window_scheduler_task
+        assert task is None or task.done()

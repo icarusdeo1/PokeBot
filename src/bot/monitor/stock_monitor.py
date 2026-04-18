@@ -15,9 +15,10 @@ State Machine:
 from __future__ import annotations
 
 import asyncio
+import random
 import signal
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -105,6 +106,16 @@ class StockMonitor:
         self._previous_sigterm: Any | None = None
         self._previous_sigint: Any | None = None
 
+        # Drop window auto-prewarm scheduler (PHASE3-T02)
+        self._drop_window_scheduler_task: asyncio.Task[None] | None = None
+        # Tracks drop windows that have already triggered prewarm
+        # (key = f"{retailer}:{item}:{drop_datetime}", value = prewarmed_at datetime)
+        self._prewarmed_windows: dict[str, datetime] = {}
+        # How often to check drop windows (seconds)
+        self._DROP_WINDOW_CHECK_INTERVAL: int = 30
+        # Fire PREWARM_URGENT if drop is within this many minutes and not prewarmed
+        self._URGENT_PREWARM_MINUTES: int = 5
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -121,6 +132,11 @@ class StockMonitor:
 
         self._running = True
         self._setup_signal_handlers()
+
+        # Start drop window auto-prewarm scheduler (PHASE3-T02)
+        self._drop_window_scheduler_task = asyncio.create_task(
+            self._run_drop_window_scheduler()
+        )
 
         # Start session pre-warming for each retailer adapter
         for retailer_name in self.config.retailers:
@@ -207,6 +223,15 @@ class StockMonitor:
 
         self.logger.info("MONITOR_SHUTDOWN_INITIATED")
         self._running = False
+
+        # Cancel drop window scheduler
+        if self._drop_window_scheduler_task is not None:
+            self._drop_window_scheduler_task.cancel()
+            try:
+                await self._drop_window_scheduler_task
+            except asyncio.CancelledError:
+                pass
+            self._drop_window_scheduler_task = None
 
         # Cancel all monitoring tasks
         for task_key, task in self._monitor_tasks.items():
@@ -693,8 +718,170 @@ class StockMonitor:
         return 500
 
     async def _close_all_adapters(self) -> None:
-        """Close all active adapter sessions."""
+        """"Close all active adapter sessions."""
         pass
+
+    # ── Private: Drop Window Auto-Prewarm Scheduler (PHASE3-T02) ──────────────
+
+    async def _run_drop_window_scheduler(self) -> None:
+        """Background loop: check drop windows and trigger pre-warming (DWC-2, DWC-4).
+
+        Runs every _DROP_WINDOW_CHECK_INTERVAL seconds while monitoring is active.
+        Handles multiple drop windows simultaneously (DWC-4).
+        Fires PREWARM_URGENT if drop is within 5 minutes and not yet prewarmed.
+        """
+        while self._running:
+            try:
+                await self._check_drop_windows()
+            except Exception as exc:  # noqa: BLE001
+                self.logger.error(
+                    "DROP_WINDOW_SCHEDULER_ERROR",
+                    error=str(exc),
+                )
+            await asyncio.sleep(self._DROP_WINDOW_CHECK_INTERVAL)
+
+    async def _check_drop_windows(self) -> None:
+        """Check all drop windows and trigger pre-warming for approaching ones.
+
+
+        Per PRD Section 9.9 (DWC-2, DWC-4):
+        - When countdown reaches prewarm_minutes, auto-start session pre-warming
+        - Multiple drop windows can be active simultaneously
+        - Fire PREWARM_URGENT if drop time is within 5 minutes and not prewarmed
+        """
+        now = datetime.now(timezone.utc)
+        drop_windows = getattr(self.config, "drop_windows", [])
+        if not drop_windows:
+            return
+
+        enabled_retailers = self.config.get_enabled_retailers()
+
+
+        for dw in drop_windows:
+            if not dw.get("enabled", True):
+                continue
+            retailer = dw.get("retailer", "")
+            if retailer not in enabled_retailers:
+                continue
+
+            item = dw.get("item", "")
+            drop_datetime_str = dw.get("drop_datetime", "")
+            prewarm_minutes = dw.get("prewarm_minutes", 15)
+
+
+            # Parse drop datetime
+            drop_dt = self._parse_drop_datetime(drop_datetime_str)
+            if drop_dt is None:
+                continue
+
+            minutes_until_drop = (drop_dt - now).total_seconds() / 60.0
+            dw_key = f"{retailer}:{item}:{drop_datetime_str}"
+
+
+            # ── PREWARM_URGENT: within 5 minutes and not prewarmed ──
+            if 0 < minutes_until_drop <= self._URGENT_PREWARM_MINUTES:
+                if dw_key not in self._prewarmed_windows:
+                    self.logger.warning(
+                        "PREWARM_URGENT",
+                        item=item,
+                        retailer=retailer,
+                        minutes_until_drop=int(minutes_until_drop),
+                        reason=(
+                            f"Drop in {int(minutes_until_drop)} min — "
+                            f"session not yet prewarmed!"
+                        ),
+                    )
+                    # Fire urgent webhook via checkout_flow webhook callback
+                    await self._fire_webhook_event(
+                        event="PREWARM_URGENT",
+                        item=item,
+                        retailer=retailer,
+                        reason=f"Drop in {int(minutes_until_drop)} minutes — pre-warm immediately!",
+                    )
+
+            # ── Auto-prewarm when within prewarm_minutes window ──
+            if 0 < minutes_until_drop <= prewarm_minutes:
+                # Check if already prewarmed
+                prewarmed_at = self._prewarmed_windows.get(dw_key)
+                if prewarmed_at is not None:
+                    continue  # Already prewarmed for this window
+
+                self.logger.info(
+                    "DROP_WINDOW_PREWARM_TRIGGERED",
+                    item=item,
+                    retailer=retailer,
+                    minutes_until_drop=int(minutes_until_drop),
+                    prewarm_window_minutes=prewarm_minutes,
+                )
+
+                # Trigger pre-warm via session_prewarmer
+                adapter = await self._get_adapter_for_retailer(retailer)
+                if adapter is not None:
+                    # Use drop window item as account identifier
+                    account_name = f"drop_{item}"
+                    result = await self.session_prewarmer.prewarm_now(
+                        adapter=adapter,
+                        account_name=account_name,
+                    )
+                    if result.success:
+                        self._prewarmed_windows[dw_key] = now
+                        self.logger.info(
+                            "DROP_WINDOW_PREWARM_SUCCESS",
+                            item=item,
+                            retailer=retailer,
+                            cookies_count=result.cookies_count,
+                        )
+                    else:
+                        self.logger.warning(
+                            "DROP_WINDOW_PREWARM_FAILED",
+                            item=item,
+                            retailer=retailer,
+                            error=result.error,
+                        )
+                else:
+                    self.logger.error(
+                        "DROP_WINDOW_PREWARM_NO_ADAPTER",
+                        item=item,
+                        retailer=retailer,
+                    )
+
+    def _parse_drop_datetime(self, value: str) -> datetime | None:
+        """Parse an ISO-8601 drop datetime string, treating naive as UTC."""
+        if not value:
+            return None
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            return None
+
+    async def _fire_webhook_event(
+        self,
+        event: str,
+        item: str = "",
+        retailer: str = "",
+        reason: str = "",
+        **kwargs: Any,
+    ) -> None:
+        """Fire a webhook event via the checkout_flow's webhook callback if available."""
+        if not hasattr(self.checkout_flow, "_webhook_callback") or self.checkout_flow._webhook_callback is None:
+            return
+        from src.shared.models import WebhookEvent
+        now = datetime.now(timezone.utc)
+        webhook_event = WebhookEvent(
+            event=event,
+            item=item,
+            retailer=retailer,
+            timestamp=now.isoformat(),
+            reason=reason,
+        )
+        callback = self.checkout_flow._webhook_callback
+        if asyncio.iscoroutinefunction(callback):
+            await callback(webhook_event)
+        else:
+            callback(webhook_event)
 
     # ── Private: Signal Handling ──────────────────────────────────────────────
 
