@@ -231,6 +231,7 @@ class MonitoredItem:
     skus: list[str]                      # SKU identifiers
     keywords: list[str]                   # Keyword match strings
     enabled: bool = True
+    max_cart_quantity: int = 1            # Max items of this SKU to add to cart (operator-configurable, default 1)
 
 @dataclass
 class RetailerAdapter(ABC):
@@ -338,6 +339,8 @@ class SessionState:
 | CART-4 | Handle cart errors (item no longer available, quantity limit) | P0 |
 | CART-5 | Clear cart between checkout attempts on failure | P1 |
 | CART-6 | Prevent duplicate cart adds for the same SKU within a session | P0 |
+| CART-7 | **Cart quantity control**: operator can set `max_cart_quantity` (default: 1) — bot will only add up to N items of the monitored SKU to the same cart; if retailer offers more than N, excess is removed or ignored | P0 |
+| CART-8 | Cart quantity validated against retailer's purchase limits (e.g., "limit 2 per customer") — if retailer's limit is lower than `max_cart_quantity`, retailer's limit takes precedence | P0 |
 
 ### 9.3 Checkout Flow
 
@@ -420,7 +423,7 @@ class SessionState:
 | DSH-7 | Settings page: all `config.yaml` fields (retailer accounts, shipping, payment, CAPTCHA mode, daily budget) editable via form fields with inline validation — no raw YAML editing required | P0 |
 | DSH-8 | "Validate Config" button runs full config validation and shows pass/fail with specific error messages | P0 |
 | DSH-9 | CAPTCHA panel: shows current mode (auto/manual/smart), daily spend vs. budget cap, per-retailer spend breakdown, solve time alerts | P0 |
-| DSH-10 | Drop Window Calendar: list of upcoming drop events with datetime and timezone; add/edit/delete drop windows; auto-prewarm status shown per drop | P0 |
+| DSH-10 | Drop Window Calendar: list of upcoming drop events with datetime and timezone; add/edit/delete drop windows; auto-prewarm status shown per drop; per-drop `max_cart_quantity` field to control how many items the bot adds to cart | P0 |
 | DSH-11 | Multi-Account panel: all configured accounts per retailer shown with session health, last prewarm time, enabled/disabled toggle | P0 |
 | DSH-12 | Event history page: searchable log of past events (last 500) with filters by event type, retailer, item | P1 |
 | DSH-13 | Operator logout button ends session and returns to PIN/password login | P0 |
@@ -869,7 +872,7 @@ No personally identifiable data beyond item name, retailer, and order ID is trac
 | Adapter Plugin Architecture | No | No | Yes — load retailers as plugins |
 | CAPTCHA Budget Tracker | No | No | Yes — daily cap, per-retailer cap, solve time alerts |
 | CAPTCHA Manual Mode + Smart Routing | No | No | Yes — operator can pause and solve manually |
-| Web Dashboard | No | Future | **Primary interface (v4.0)** |
+| Cart Quantity Control | No | No | Yes — operator sets max items per SKU added to cart (per drop window) |
 | Success Rate (est.) | 60–70% | 80–85% | 85–90% |
 
 ---
