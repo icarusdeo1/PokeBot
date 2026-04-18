@@ -1282,13 +1282,15 @@
 
 ---
 
-**DCT-T01**
+**DCT-T01** ✅ DONE
 - **Title:** Implement manual drop time scheduling form
 - **Feature Area:** `dashboard/templates/index.html`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** PHASE3-T01
 - **Description:** Implement "Schedule Drop" form: date/time picker with timezone selection. Operator enters known drop event. PRD Sections 9.13 (DCT-1), 9.7 (DSH-10).
+- **Completed:** 2026-04-18 (commit 0d6d181)
+- **Implementation:** Modal form with item name, retailer select (Target/Walmart/Best Buy), datetime-local picker, timezone select, prewarm minutes, max cart quantity, enabled checkbox. `loadDropWindows()` fetches from GET /api/config and renders countdown list. `saveDropWindow()` PATCHes drop_windows array. `deleteDropWindow()` removes entries.
 
 ---
 
