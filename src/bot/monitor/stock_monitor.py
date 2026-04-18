@@ -103,6 +103,10 @@ class StockMonitor:
         self._monitor_tasks: dict[str, asyncio.Task[None]] = {}
         self._running = False
         self._shutdown_event = asyncio.Event()
+        # Event signaled when dashboard sends "start" command — gates actual monitoring
+        self._monitor_requested = asyncio.Event()
+        # Reference to daemon's shutdown event (set by daemon.py on SIGTERM/SIGINT)
+        self._daemon_shutdown_event: asyncio.Event | None = None
 
         # Per-item/retailer state
         self._item_states: dict[str, MonitorState] = {}
@@ -123,20 +127,34 @@ class StockMonitor:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    async def start(self) -> None:
-        """Start monitoring all configured items and retailers.
+    def is_running(self) -> bool:
+        """Return True if monitoring tasks are currently active.
 
-        Loads items from config, starts per-item monitoring loops.
-        Blocks until shutdown is requested.
+        This reflects whether monitoring loops are running (set by start/stop commands),
+        not the overall daemon state.
         """
+        return bool(self._running and self._monitor_tasks and not all(
+            t.done() for t in self._monitor_tasks.values()
+        ))
+
+    async def start_monitoring(self) -> None:
+        """Begin actual monitoring (called after start() has set up infrastructure).
+
+        This is triggered by the dashboard "start" command via the command poller.
+        Creates monitoring tasks for all configured items/retailers.
+        Blocks until stop_monitoring() is called or shutdown is requested.
+        """
+        if self._running:
+            self.logger.info("MONITORING_ALREADY_ACTIVE")
+            return
+
         self.logger.info(
-            "MONITOR_STARTED",
+            "MONITORING_STARTED",
             items_count=sum(len(r.items) for r in self.config.retailers.values() if r.enabled),
             retailers=[r for r in self.config.retailers],
         )
 
         self._running = True
-        self._setup_signal_handlers()
 
         # Start drop window auto-prewarm scheduler (PHASE3-T02)
         self._drop_window_scheduler_task = asyncio.create_task(
@@ -158,7 +176,6 @@ class StockMonitor:
                 item_name = item_def.get("name", "unknown")
                 skus = item_def.get("skus", [])
                 enabled = item_def.get("enabled", True)
-                retailers_for_item = item_def.get("retailers", [retailer_name])
 
                 if not enabled:
                     self.logger.info(
@@ -190,7 +207,7 @@ class StockMonitor:
                         sku=sku,
                     )
 
-                # MON-4: Keyword-based detection tasks (MON-4)
+                # MON-4: Keyword-based detection tasks
                 keywords = item_def.get("keywords", [])
                 for keyword in keywords:
                     kw_task_key = f"{item_name}:{retailer_name}:kw:{keyword}"
@@ -214,19 +231,67 @@ class StockMonitor:
                         keyword=keyword,
                     )
 
-        # Wait for shutdown signal
+        # Wait until monitoring is stopped or shutdown is requested
+        while self._running and not self._shutdown_event.is_set():
+            await asyncio.sleep(0.5)
+
+        # Monitoring stopped — cancel active tasks
+        self.logger.info("MONITORING_STOPPING")
+        self._running = False
+        for task_key, task in self._monitor_tasks.items():
+            if not task.done():
+                task.cancel()
+                self.logger.debug("MONITOR_TASK_CANCELLED", task_key=task_key)
+
+        if self._monitor_tasks:
+            await asyncio.gather(
+                *self._monitor_tasks.values(),
+                return_exceptions=True,
+            )
+        self._monitor_tasks.clear()
+
+        # Cancel drop window scheduler
+        if self._drop_window_scheduler_task is not None:
+            self._drop_window_scheduler_task.cancel()
+            try:
+                await self._drop_window_scheduler_task
+            except asyncio.CancelledError:
+                pass
+            self._drop_window_scheduler_task = None
+
+        self.logger.info("MONITORING_STOPPED")
+
+    async def start(self) -> None:
+        """Daemon entry point: initialize infrastructure, then wait for start/stop commands.
+
+        Sets up signal handlers and waits for the dashboard "start" command
+        via _monitor_requested event. Once monitoring begins, blocks until
+        shutdown is requested (SIGTERM/SIGINT or daemon shutdown).
+        """
+        self.logger.info("MONITOR_READY", message="Awaiting start command from dashboard")
+        self._setup_signal_handlers()
+
+        # Wait for dashboard "start" command
+        await self._monitor_requested.wait()
+
+        # Begin monitoring
+        await self.start_monitoring()
+
+        # Wait for daemon shutdown signal (SIGTERM/SIGINT)
         await self._shutdown_event.wait()
 
-    async def stop(self) -> None:
-        """Stop all monitoring tasks gracefully (MON-11).
+    async def stop_monitoring(self) -> None:
+        """Stop all active monitoring tasks gracefully (command-driven stop).
 
-        Cancels active monitoring tasks, closes browser sessions,
-        persists state. Called on SIGTERM/SIGINT.
+        Sets _running=False to signal monitoring loops to exit.
+        Cancels scheduler and monitoring tasks, closes browser sessions.
+        Does NOT set _shutdown_event — the daemon stays running to accept
+        new commands. Use trigger_shutdown() for full daemon exit.
         """
         if not self._running:
             return
 
-        self.logger.info("MONITOR_SHUTDOWN_INITIATED")
+        self.logger.info("MONITORING_STOP_REQUESTED")
         self._running = False
 
         # Cancel drop window scheduler
@@ -257,8 +322,25 @@ class StockMonitor:
         # Close all adapter sessions
         await self._close_all_adapters()
 
+        self.logger.info("MONITORING_STOPPED")
+
+    async def trigger_shutdown(self) -> None:
+        """Trigger full daemon shutdown (called from SIGTERM/SIGINT handlers).
+
+        Stops monitoring and sets the shutdown event to exit the daemon.
+        """
+        await self.stop_monitoring()
         self._shutdown_event.set()
-        self.logger.info("MONITOR_SHUTDOWN_COMPLETE")
+        self.logger.info("MONITOR_SHUTDOWN_TRIGGERED")
+
+    # Alias for backward compatibility with SIGTERM handler wiring
+    async def stop(self) -> None:
+        """Alias for trigger_shutdown() for backward compatibility.
+
+        Deprecated: use stop_monitoring() for command-driven stop,
+        trigger_shutdown() for SIGTERM-initiated shutdown.
+        """
+        await self.trigger_shutdown()
 
     async def start_monitoring_item(
         self,
