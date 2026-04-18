@@ -697,23 +697,44 @@
 
 ---
 
-**ROUTE-T02**
+**ROUTE-T02** ✅ DONE
 - **Title:** Implement /api/config routes (GET/PATCH)
 - **Feature Area:** `dashboard/routes/config.py`
 - **Priority:** P0
 - **Complexity:** M
 - **Dependencies:** SHARED-T04, AUTH-T02
 - **Description:** Implement `GET /api/config` (fetch full config, masking sensitive fields) and `PATCH /api/config` (update config.yaml from form data, validate before saving). Sensitive fields masked as `****1234`. PRD Sections 9.8 (CFG-9, CFG-10), 9.7 (DSH-7).
+- **Acceptance Criteria:**
+  - [x] `get_config_route()` with VIEWER role auth, returns masked config via `config.mask_secrets()`
+  - [x] `patch_config_route()` with OPERATOR role auth, deep-merges update into current config
+  - [x] Validates merged config via `Config._from_raw()` before saving
+  - [x] Returns HTTP 400 with field-level errors on validation failure
+  - [x] Writes merged config to config.yaml on success
+  - [x] Returns masked config in response body
+  - [x] `_deep_merge()` helper for recursive dict merging
+  - [x] Tests: 11 passed (tests/test_dashboard/test_config.py)
+  - [x] mypy: clean
 
 ---
 
-**ROUTE-T03**
+**ROUTE-T03** ✅ DONE
 - **Title:** Implement /api/events/stream SSE route
 - **Feature Area:** `dashboard/routes/events.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T02, AUTH-T02
 - **Description:** Implement `GET /api/events/stream` SSE endpoint: stream real-time events from daemon to dashboard. Daemon writes events to `state.db` and pushes via SSE. Dashboard JS consumes SSE and updates live event log. < 500ms latency target. PRD Sections 9.7 (DSH-3), 3 (Dashboard real-time latency < 500ms).
+- **Acceptance Criteria:**
+  - [x] `events_stream_route()` with VIEWER role auth, returns `StreamingResponse` with `text/event-stream`
+  - [x] SSE format: `data: {"event": "...", ...}` per event
+  - [x] Initial backlog from Logger's in-memory SSE queue
+  - [x] Polling interval: 200ms (well under 500ms latency target)
+  - [x] Keepalive comment line every 30s to prevent connection timeout
+  - [x] Cache-Control: no-cache, X-Accel-Buffering: no headers
+  - [x] `events_history_route()` returns last 500 events from state.db with filters (event_type, retailer, item)
+  - [x] Graceful handling when Logger not initialized (uses empty backlog)
+  - [x] Tests: 14 passed (tests/test_dashboard/test_events.py)
+  - [x] mypy: clean on source and test files
 
 ---
 
