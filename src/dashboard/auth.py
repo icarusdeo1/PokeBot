@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -23,6 +24,13 @@ except ImportError:
         "argon2-cffi is required for dashboard auth. "
         "Install it with: pip install argon2-cffi"
     )
+
+
+from starlette.datastructures import URLPath
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp
 
 from src.shared.db import DatabaseManager
 
@@ -473,44 +481,254 @@ class DashboardAuth:
         }
 
 
-# ── Decorator / helpers for route protection ──────────────────────────────────
+# ── FastAPI Route Protection ─────────────────────────────────────────────────
 
 def require_auth(
     require_role: UserRole = UserRole.OPERATOR,
-) -> Callable[..., Any]:
-    """Decorator for FastAPI route dependency to require authentication.
+) -> Callable[..., "DashboardSession"]:
+    """FastAPI dependency requiring a valid dashboard session.
 
-    Usage:
+    Extracts the ``pokedrop_session`` cookie from the request, validates it
+    against the ``DashboardAuth`` instance, and returns the ``DashboardSession``
+    if valid. Raises HTTPException 401 if missing or expired, HTTPException 403
+    if the role is insufficient.
+
+    Usage in server.py (wiring up the dependency)::
+
+        from fastapi import Depends
+        from src.dashboard.auth import require_auth, UserRole, DashboardAuth
+
+        def get_auth() -> DashboardAuth:
+            return dashboard_auth_instance  # wired in server.py
+
         @router.post("/api/monitor/start")
-        async def start_monitor(session: Session = Depends(require_auth())):
-            ...
-
-    The decorated function receives a DashboardSession as its first argument.
+        async def start_monitor(
+            session: DashboardSession = Depends(
+                require_auth(UserRole.OPERATOR)
+            ),
+            auth: DashboardAuth = Depends(get_auth),
+        ): ...
 
     Args:
         require_role: Minimum required role (OPERATOR or VIEWER).
                       OPERATOR sessions satisfy any role requirement.
-                      VIEWER sessions only satisfy VIEWER requirement.
+                      VIEWER sessions satisfy only VIEWER requirement.
 
     Returns:
-        A FastAPI Depends-compatible callable.
+        A FastAPI ``Depends``-compatible callable that returns a
+        ``DashboardSession`` or raises an HTTP error.
     """
-    from functools import wraps
 
-    def _get_session(token: str | None = None) -> DashboardSession | None:
-        if not token:
-            return None
-        # Lazy import to avoid circular import at module level
-        # In practice, the caller will provide auth via dependency injection
-        return None
+    def dependency(request: Request) -> "DashboardSession":
+        """Validate session and enforce role.
 
-    def dependency(
-        token: str | None = None,
-    ) -> DashboardSession:
-        """FastAPI dependency that returns a valid DashboardSession or raises 401."""
-        # This will be wired up in server.py via the DashboardAuth instance
-        raise NotImplementedError(
-            "require_auth dependency must be wired in server.py with a DashboardAuth instance"
-        )
+        Args:
+            request: The FastAPI/Starlette request (automatically injected).
+
+        Raises:
+            HTTPException 401: No token or session invalid/expired.
+            HTTPException 403: Insufficient role.
+        """
+        session_token = request.cookies.get(SESSION_COOKIE_NAME)
+
+        if not session_token:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated — missing session cookie",
+            )
+
+        # Access the DashboardAuth singleton wired via server.py
+        _auth_instance = _get_wired_auth()
+        if _auth_instance is None:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=500,
+                detail="Dashboard auth not configured on server",
+            )
+
+        session = _auth_instance.validate_session(session_token)
+        if session is None:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=401,
+                detail="Session expired or invalid — please log in again",
+            )
+
+        # Role enforcement: VIEWER cannot satisfy OPERATOR requirement
+        if require_role == UserRole.OPERATOR and session.role == UserRole.VIEWER:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=403,
+                detail="Operator privileges required for this action",
+            )
+
+        return session
 
     return dependency
+
+
+# ── Auth wiring registry (used by server.py) ─────────────────────────────────
+
+_auth_instance: "DashboardAuth | None" = None
+
+
+def wire_auth(auth_instance: "DashboardAuth") -> None:
+    """Wire a DashboardAuth instance for use by the require_auth dependency.
+
+    Call this once in ``server.py`` after creating the ``DashboardAuth``
+    instance, before starting the FastAPI app.
+
+    Args:
+        auth_instance: The configured ``DashboardAuth`` instance.
+    """
+    global _auth_instance
+    _auth_instance = auth_instance
+
+
+def _get_wired_auth() -> "DashboardAuth | None":
+    """Return the currently wired DashboardAuth instance (internal use)."""
+    return _auth_instance
+
+
+# ── FastAPI Session Auth Middleware ──────────────────────────────────────────
+
+# HTTP methods considered "write" operations — Viewer role is blocked from these
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Routes that are always public (no auth required)
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/login", "/health")
+
+# Compiled pattern for /api/* routes
+_API_PATTERN = re.compile(r"^/api/")
+
+
+class SessionAuthMiddleware(BaseHTTPMiddleware):
+    """FastAPI/Starlette middleware for session validation on all ``/api/*`` routes.
+
+    Per AUTH-T02 and PRD Sections 5, 9.7 (DSH-15):
+
+    - All ``/api/*`` routes require a valid session cookie
+    - ``/login`` and ``/health`` routes are always public (no auth required)
+    - Expired / invalid sessions return HTTP 401
+    - Viewer role is blocked from all write operations (POST, PUT, PATCH, DELETE)
+      and receives HTTP 403
+
+    The middleware attaches the validated ``DashboardSession`` to
+    ``request.state.session`` so route handlers can inspect it.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        auth_instance: "DashboardAuth | None" = None,
+    ) -> None:
+        """Initialize the middleware.
+
+        Args:
+            app: The ASGI application.
+            auth_instance: The ``DashboardAuth`` instance to use for validation.
+                          If None, uses the wired instance via ``_get_wired_auth()``.
+        """
+        super().__init__(app)
+        self._auth_instance = auth_instance
+
+    @property
+    def _auth(self) -> "DashboardAuth":
+        """Resolve the auth instance (wired or explicit)."""
+        if self._auth_instance is not None:
+            return self._auth_instance
+        inst = _get_wired_auth()
+        if inst is None:
+            raise RuntimeError(
+                "SessionAuthMiddleware: no DashboardAuth instance available. "
+                "Either pass auth_instance to the middleware or call wire_auth() "
+                "before adding the middleware to the app."
+            )
+        return inst
+
+    def _is_public_route(self, path: str) -> bool:
+        """Return True if the request path is always public (no auth required)."""
+        return path.startswith(_PUBLIC_PREFIXES)
+
+    def _is_api_route(self, path: str) -> bool:
+        """Return True if the request path is an /api/* route requiring auth."""
+        return bool(_API_PATTERN.match(path))
+
+    def _get_session_from_request(self, request: Request) -> "DashboardSession | None":
+        """Extract and validate the session from the request cookie.
+
+        Returns the DashboardSession if valid, None otherwise.
+        """
+        cookie_value = request.cookies.get(SESSION_COOKIE_NAME)
+        if not cookie_value:
+            return None
+        return self._auth.validate_session(cookie_value)
+
+    def _blocked_response(
+        self,
+        status_code: int,
+        message: str,
+    ) -> JSONResponse:
+        """Build a JSON error response."""
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": message},
+        )
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        """Process each HTTP request through session validation.
+
+        Args:
+            request: The incoming request.
+            call_next: The next middleware / route handler.
+
+        Returns:
+            401 if no valid session on /api/* routes,
+            403 if Viewer attempts a write operation,
+            or the normal response from call_next.
+        """
+        path: str = request.url.path
+
+        # Always allow public routes (no auth needed)
+        if self._is_public_route(path):
+            return await call_next(request)
+
+        # Only protect /api/* routes — everything else is out of scope
+        if not self._is_api_route(path):
+            return await call_next(request)
+
+        # ── Session validation ────────────────────────────────────────────
+        session = self._get_session_from_request(request)
+
+        if session is None:
+            logger.debug("Middleware: no/invalid session for path=%s", path)
+            return self._blocked_response(
+                401,
+                "Not authenticated — missing or invalid session cookie",
+            )
+
+        # Attach session to request state for downstream route handlers
+        request.state.session = session
+
+        # ── Viewer role: block write operations ───────────────────────────
+        if (
+            session.role == UserRole.VIEWER
+            and request.method in _WRITE_METHODS
+        ):
+            logger.debug(
+                "Middleware: Viewer attempted write method=%s path=%s",
+                request.method,
+                path,
+            )
+            return self._blocked_response(
+                403,
+                "Viewer role is not permitted to perform write operations; "
+                "contact an operator to change your access level",
+            )
+
+        return await call_next(request)
