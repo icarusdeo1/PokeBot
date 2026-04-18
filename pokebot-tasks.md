@@ -1516,13 +1516,24 @@
 
 ---
 
-**QUEUE-T01**
+**QUEUE-T01** ✅ DONE
 - **Title:** Implement queue detection and auto-wait
 - **Feature Area:** `bot/monitor/retailers/`
 - **Priority:** P1
 - **Complexity:** M
 - **Dependencies:** ADAPTER-T02
 - **Description:** Detect retailer queue/waiting room redirects. Fire `QUEUE_DETECTED` webhook. Auto-wait until queue clears. Fire `QUEUE_CLEARED` when through. Continue checkout. Timeout at 60s. PRD Sections 9.1 (MON-9), 12 (Queue/waiting room edge case).
+- **Completed:** 2026-04-18 (commit 0bb9a93)
+- **Implementation:**
+  - `src/bot/monitor/queue_handler.py`: New `QueueHandler` class with `check_queue()`, `wait_for_queue_cleared()`, and `check_and_wait()`.
+    - 60-second timeout (configurable), 2-second polling interval
+    - Fires `QUEUE_DETECTED` webhook on queue entry, `QUEUE_CLEARED` on exit
+    - Logs QUEUE_DETECTED (warning), QUEUE_CLEARED (info), QUEUE_TIMEOUT (error)
+    - `_queue_detected_fired` flag prevents duplicate webhook fires on repeated checks
+  - `src/bot/monitor/stock_monitor.py`: `_route_to_checkout()` calls `QueueHandler.check_and_wait()` before running `CheckoutFlow`, returns early with CHECKOUT_QUEUE_TIMEOUT if queue times out
+  - `src/bot/checkout/checkout_flow.py`: `run()` does proactive queue check before checkout; also checks for queue after each failed checkout attempt
+  - Tests: 15 passed (`test_queue_handler.py`)
+  - mypy: clean on all changed files
 
 ---
 
