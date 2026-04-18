@@ -294,13 +294,22 @@
 
 ---
 
-**EVASION-T06**
+**EVASION-T06** ✅ DONE
 - **Title:** Respect retailer robots.txt
 - **Feature Area:** `bot/evasion/`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T04
 - **Description:** Before monitoring, fetch and parse retailer's robots.txt. Do not crawl disallowed paths. Cache robots.txt for session duration. PRD Section 9.5 (EV-3).
+- **Acceptance Criteria:**
+  - [x] RobotsDotTxt dataclass with host, raw, rules, crawl_delay, user_agents
+  - [x] RobotsDotTxtManager with async fetch and 3600s cache per host
+  - [x] is_allowed() with Google-style UA-specific precedence
+  - [x] Support for Disallow:, Allow:, Crawl-delay: directives
+  - [x] Glob pattern matching: * → [^/]*, ** → .*, $ → end anchor
+  - [x] is_url_allowed() and get_crawl_delay() public API
+  - [x] Fail-open on fetch errors
+  - [x] Tests: 25 passed, mypy: no issues
 
 ---
 
