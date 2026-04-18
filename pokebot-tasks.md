@@ -204,13 +204,21 @@
 
 ---
 
-**EVASION-T01**
+**EVASION-T01** ✅ DONE
 - **Title:** Implement User-Agent rotation pool
 - **Feature Area:** `bot/evasion/user_agents.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T01
 - **Description:** Create `bot/evasion/user_agents.py` with pool of ≥50 real User-Agent strings from real browsers (Chrome, Firefox, Safari, Edge). Implement rotation strategy (random per request). PRD Section 9.5 (EV-1).
+- **Acceptance Criteria:**
+  - [x] Pool of ≥50 real UA strings from Chrome, Firefox, Safari, Edge, and other browsers
+  - [x] `get_random_user_agent()` returns a random UA from the pool per call
+  - [x] `iter_user_agents()` yields all UAs in the pool
+  - [x] `get_user_agent_for_browser(browser)` returns UA for specific browser family (chrome/firefox/safari/edge/opera/brave/android/iphone/ipad)
+  - [x] Rotation strategy: uniform random per request
+  - [x] Tests: 42 passed
+  - [x] mypy: no issues
 
 ---
 
