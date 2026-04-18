@@ -677,13 +677,23 @@
 
 ---
 
-**ROUTE-T01**
+**ROUTE-T01** ✅ DONE
 - **Title:** Implement /api/status route
 - **Feature Area:** `dashboard/routes/status.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T02, AUTH-T02
 - **Description:** Implement `GET /api/status`: return daemon state from `state.db` — daemon online/offline, active items list, per-retailer session health (green/yellow/red), last event timestamp, uptime seconds. PRD Section 9.7 (DSH-2).
+- **Acceptance Criteria:**
+  - [x] `status_route` async function with VIEWER role auth, returns dict with online, active_items, session_health, last_event_at, uptime_seconds
+  - [x] Reads from state.db via `get_recent_events` and `load_session`
+  - [x] Online detection: events present OR active items → online
+  - [x] Active items tracked from MONITOR_STARTED/MONITOR_STOPPED event pairs
+  - [x] Session health: green (valid session, >10min to expiry), yellow (≤10min to expiry), red (expired/missing/SESSION_EXPIRED event)
+  - [x] Last event timestamp from newest event row
+  - [x] Uptime from oldest MONITOR_STARTED event timestamp
+  - [x] Tests: 15 passed (tests/test_dashboard/test_status.py)
+  - [x] mypy: no issues
 
 ---
 
