@@ -755,13 +755,20 @@
 
 ---
 
-**ROUTE-T05**
+**ROUTE-T05** ✅ DONE
 - **Title:** Implement /api/dryrun route
 - **Feature Area:** `dashboard/routes/dryrun.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** AUTH-T02, CHECKOUT-T02
 - **Description:** Implement `POST /api/dryrun`: trigger full checkout flow without placing order. Stream output to a terminal panel via SSE. Validate config before running. PRD Sections 9.7 (DSH-6), 14 (Phase 1 exit criteria).
+- **Acceptance Criteria:**
+  - [x] `dryrun_route()` with OPERATOR role auth, returns `StreamingResponse` with `text/event-stream`
+  - [x] Validates config via `Config.from_file()` before enqueueing — HTTP 400 if invalid
+  - [x] Enqueues 'dryrun' command to state.db command queue via `db.enqueue_command()`
+  - [x] SSE stream with 500ms polling, keepalive comments, done status event
+  - [x] Tests: 6 passed (tests/test_dashboard/test_dryrun.py)
+  - [x] mypy: clean on source files
 
 ---
 
@@ -819,13 +826,20 @@
 
 ---
 
-**ROUTE-T09**
+**ROUTE-T09** ✅ DONE
 - **Title:** Implement /api/events/history route
 - **Feature Area:** `dashboard/routes/events.py`
 - **Priority:** P1
 - **Complexity:** S
 - **Dependencies:** SHARED-T02, AUTH-T02
 - **Description:** Implement `GET /api/events/history`: return last 500 events from `state.db` with filters (event type, retailer, item). PRD Sections 9.7 (DSH-12).
+- **Acceptance Criteria:**
+  - [x] `events_history_route()` with VIEWER role auth, returns `{events, total}`
+  - [x] limit param (1-1000, default 500), event_type/retailer/item filters
+  - [x] Reads from state.db via `get_recent_events()`
+  - [x] Graceful handling of DB errors (returns empty events list)
+  - [x] Tests: covered in test_events.py (events history tests)
+  - [x] mypy: clean on source files
 
 ---
 
