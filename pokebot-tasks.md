@@ -97,13 +97,22 @@
 
 ---
 
-**SHARED-T05**
+**SHARED-T05** ✅ DONE
 - **Title:** Implement structured logging with SSE stream
 - **Feature Area:** `bot/logger.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T01
 - **Description:** Create `bot/logger.py` with structured JSON logging to `logs/poke_drop.log`. Use `RotatingFileHandler` (10MB, 5 backups). Implement log levels: DEBUG (form fields masked), INFO (lifecycle events), WARNING, ERROR. Also emit events to SSE stream for dashboard consumption. PRD Sections 10.1, 18.
+- **Acceptance Criteria:**
+  - [x] Logger class with RotatingFileHandler (10MB, 5 backups) to logs/poke_drop.log
+  - [x] Structured JSON log lines with timestamp + level + event + kwargs
+  - [x] Sensitive field masking: card_number/cvv/password/tokens always redacted at INFO/WARNING/ERROR; card_number shows last 4 at DEBUG
+  - [x] Human-readable console output
+  - [x] In-memory SSE event queue (max 1000 events) via Logger.get_sse_queue()
+  - [x] All webhook event types from PRD Section 8.2 supported
+  - [x] Tests: 50 passed
+  - [x] mypy: no issues
 
 ---
 
