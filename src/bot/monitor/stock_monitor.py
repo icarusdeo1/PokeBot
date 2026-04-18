@@ -727,6 +727,26 @@ class StockMonitor:
         # Use the prewarmer's account assignment if available
         account_name = self._get_account_for_item(item_name, retailer_name)
 
+        # ── Queue check before checkout (QUEUE-T01) ──
+        # Check if retailer redirected us to a queue/waiting room after add-to-cart
+        from src.bot.monitor.queue_handler import QueueHandler
+        queue_handler = QueueHandler(logger=self.logger, webhook_callback=webhook_callback)
+        queue_ok = await queue_handler.check_and_wait(
+            adapter=adapter,
+            item_name=item_name,
+            retailer_name=retailer_name,
+        )
+        if not queue_ok:
+            self.logger.warning(
+                "CHECKOUT_QUEUE_TIMEOUT",
+                item=item_name,
+                retailer=retailer_name,
+                message="Timed out in queue before checkout",
+            )
+            state.stage = MonitorStage.CHECKOUT_FAILED
+            state.error = "Timed out in retailer queue/waiting room"
+            return
+
         checkout_result = await self.checkout_flow.run(
             adapter=adapter,
             sku=sku,

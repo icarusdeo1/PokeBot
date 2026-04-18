@@ -21,6 +21,7 @@ from src.bot.checkout.shipping import (
     ShippingAutofill,
     get_standard_shipping_field_mapping,
 )
+from src.bot.monitor.queue_handler import QueueHandler
 from src.shared.models import CheckoutStage, WebhookEvent
 
 if TYPE_CHECKING:
@@ -118,6 +119,11 @@ class CheckoutFlow:
             ShippingAutofill(shipping_info) if shipping_info is not None else None
         )
 
+        # Queue handler (QUEUE-T01)
+        self._queue_handler: QueueHandler | None = None
+        if logger is not None:
+            self._queue_handler = QueueHandler(logger=logger)
+
         # Payment decline handler
         self._decline_handler = PaymentDeclineHandler(max_retries=1, retry_delay_seconds=2.0)
 
@@ -153,6 +159,20 @@ class CheckoutFlow:
         Per PRD Section 9.1 (MON-10): on session expiry, re-authenticate
         and restart from cart step.
         """
+        # Proactive queue check before checkout (QUEUE-T01)
+        if self._queue_handler is not None:
+            queue_ok = await self._queue_handler.check_and_wait(
+                adapter=adapter,
+                item_name=item_name,
+                retailer_name=adapter.name,
+            )
+            if not queue_ok:
+                return CheckoutResult(
+                    success=False,
+                    stage=CheckoutStage.PRE_CHECK.value,
+                    error="Timed out in retailer queue/waiting room",
+                )
+
         # Proactively check/reauth session before checkout (MON-10)
         if self._reauthenticator is not None:
             reauth_result = await self._reauthenticator.check_and_reauth(
@@ -200,6 +220,20 @@ class CheckoutFlow:
                 webhook_callback=webhook_callback,
                 account_name=account_name,
             )
+
+            # Mid-checkout queue detection (QUEUE-T01): check after each step
+            if self._queue_handler is not None and not result.success:
+                queue_cleared = await self._queue_handler.check_and_wait(
+                    adapter=adapter,
+                    item_name=item_name,
+                    retailer_name=adapter.name,
+                )
+                if not queue_cleared:
+                    return CheckoutResult(
+                        success=False,
+                        stage=result.stage or CheckoutStage.PRE_CHECK.value,
+                        error=f"Timed out in retailer queue/waiting room: {result.error}",
+                    )
 
             if result.success:
                 self.logger.info(
