@@ -873,13 +873,19 @@
 
 ---
 
-**PHASE3-T01**
+**PHASE3-T01** ✅ DONE
 - **Title:** Implement drop window data model and storage
 - **Feature Area:** `bot/config.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** SHARED-T03, SHARED-T04
 - **Description:** Extend config schema to support `drop_windows:` list. Each window: item name, retailer, drop datetime (ISO-8601 with timezone), prewarm minutes before, enabled flag. Validate on startup. Store in config.yaml. PRD Sections 9.9 (DWC-1, DWC-3), 11.
+- **Acceptance Criteria:**
+  - [x] Drop window validation in Config._validate(): item (required), retailer (target/walmart/bestbuy), drop_datetime (ISO-8601), prewarm_minutes (int >= 0), enabled (bool), max_cart_quantity (int >= 1)
+  - [x] Naive datetimes treated as UTC
+  - [x] Field-level ConfigError messages per drop window
+  - [x] Tests: 10 new tests for validation
+  - [x] mypy: no issues
 
 ---
 
@@ -893,13 +899,17 @@
 
 ---
 
-**PHASE3-T03**
+**PHASE3-T03** ✅ DONE
 - **Title:** Implement past drop window pruning
 - **Feature Area:** `bot/config.py`
 - **Priority:** P0
 - **Complexity:** S
 - **Dependencies:** PHASE3-T01
 - **Description:** On startup, automatically prune past drop windows from active memory. PRD Section 9.9 (DWC-6).
+- **Acceptance Criteria:**
+  - [x] Past drop windows pruned on Config._validate() (uses UTC-aware datetime comparison)
+  - [x] Tests: 6 new tests for pruning behavior
+  - [x] mypy: no issues
 
 ---
 
