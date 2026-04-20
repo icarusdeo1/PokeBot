@@ -184,6 +184,25 @@ class DatabaseManager:
                     "CREATE INDEX IF NOT EXISTS idx_purchase_lookup "
                     "ON account_purchases(item, retailer, drop_window_id)"
                 )
+
+                # ── account_sessions table (MAC-T02 / MAC-4) ──────────────────────
+                conn.execute(
+                    """CREATE TABLE IF NOT EXISTS account_sessions (
+                        retailer TEXT NOT NULL,
+                        username TEXT NOT NULL,
+                        cookies_json TEXT NOT NULL DEFAULT '{}',
+                        auth_token TEXT NOT NULL DEFAULT '',
+                        cart_token TEXT NOT NULL DEFAULT '',
+                        prewarmed_at TEXT,
+                        expires_at TEXT,
+                        is_valid INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY (retailer, username)
+                    )"""
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_account_sessions_retailer "
+                    "ON account_sessions(retailer)"
+                )
                 conn.commit()
 
     def initialize(self) -> Self:
@@ -416,12 +435,92 @@ class DatabaseManager:
         }
 
     def invalidate_session(self, retailer: str) -> None:
-        """Mark a retailer's session as invalid (e.g. on auth failure)."""
+        """"Mark a retailer's session as invalid (e.g. on auth failure)."""
         with self._write_lock:
             with self.connection() as conn:
                 conn.execute(
                     "UPDATE session_state SET is_valid=0 WHERE retailer=?",
                     (retailer,),
+                )
+                conn.commit()
+
+    # ── Account sessions (per-username, for multi-account FRONTEND-T10) ────────
+
+    def save_account_session(
+        self,
+        retailer: str,
+        username: str,
+        cookies: dict[str, str],
+        auth_token: str = "",
+        cart_token: str = "",
+        is_valid: bool = True,
+        expires_at: str = "",
+    ) -> None:
+        """Persist a per-account session (upsert by composite key)."""
+        cookies_json = json.dumps(cookies)
+        prewarmed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        with self._write_lock:
+            with self.connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO account_sessions
+                        (retailer, username, cookies_json, auth_token, cart_token, prewarmed_at, expires_at, is_valid)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (retailer, username, cookies_json, auth_token, cart_token, prewarmed_at, expires_at, int(is_valid)),
+                )
+                conn.commit()
+
+
+    def load_account_session(
+        self, retailer: str, username: str
+    ) -> dict[str, Any] | None:
+        """Load persisted session for a specific account."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM account_sessions WHERE retailer=? AND username=?",
+                (retailer, username),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "cookies": json.loads(row["cookies_json"]),
+            "auth_token": row["auth_token"],
+            "cart_token": row["cart_token"],
+            "prewarmed_at": row["prewarmed_at"],
+            "expires_at": row["expires_at"] if "expires_at" in row.keys() else "",
+            "is_valid": bool(row["is_valid"]),
+        }
+
+
+    def load_all_account_sessions(self) -> list[dict[str, Any]]:
+        """Load all account session records."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM account_sessions"
+            ).fetchall()
+        return [
+            {
+                "retailer": row["retailer"],
+                "username": row["username"],
+                "cookies": json.loads(row["cookies_json"]),
+                "auth_token": row["auth_token"],
+                "cart_token": row["cart_token"],
+                "prewarmed_at": row["prewarmed_at"],
+                "expires_at": row["expires_at"] if "expires_at" in row.keys() else "",
+                "is_valid": bool(row["is_valid"]),
+            }
+            for row in rows
+        ]
+
+
+    def invalidate_account_session(self, retailer: str, username: str) -> None:
+        """Mark a specific account's session as invalid."""
+        with self._write_lock:
+            with self.connection() as conn:
+                conn.execute(
+                    "UPDATE account_sessions SET is_valid=0 WHERE retailer=? AND username=?",
+                    (retailer, username),
                 )
                 conn.commit()
 

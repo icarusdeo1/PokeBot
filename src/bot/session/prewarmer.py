@@ -196,10 +196,16 @@ class SessionPrewarmer:
             return
 
         sessions = self._persistence.load_all_sessions()
-        for retailer, session_state in sessions.items():
+        for key, session_state in sessions.items():
+            # key is "retailer:username" for account-keyed sessions,
+            # or bare "retailer" for legacy retailer-keyed records.
+            retailer, _, account_name = key.partition(":")
+            if not account_name:
+                # Legacy retailer-keyed record — use "persisted" as account name
+                account_name = "persisted"
             prewarm_session = PrewarmSession(
                 retailer=retailer,
-                account_name="persisted",
+                account_name=account_name,
                 cookies=session_state.cookies,
                 auth_token=session_state.auth_token,
                 cart_token=session_state.cart_token,
@@ -207,10 +213,10 @@ class SessionPrewarmer:
                 expires_at=session_state.expires_at,
                 adapter_name="",
             )
-            self._cache.set(retailer, "persisted", prewarm_session)
+            self._cache.set(retailer, account_name, prewarm_session)
             self._log(
                 "INFO", "SESSION_RESTORED_FROM_DB",
-                retailer=retailer,
+                retailer=retailer, account=account_name,
                 cookies_count=len(session_state.cookies),
             )
 
@@ -256,7 +262,9 @@ class SessionPrewarmer:
 
         # Try loading from persistence if configured
         if self._persistence is not None:
-            session_state = self._persistence.load_session(retailer)
+            session_state = self._persistence.load_session(
+                retailer, account_name=account_name
+            )
             if session_state is not None:
                 # Reconstruct PrewarmSession from SessionState
                 session = PrewarmSession(
@@ -292,8 +300,12 @@ class SessionPrewarmer:
         Returns a dict mapping retailer name → list of account dicts
         with ``account_name``, ``prewarmed_at``, ``is_valid``,
         ``expires_at``, ``cookies_count``.
+        Merges in-memory cache data with persisted DB records so sessions
+        loaded from state.db are also reflected.
         """
         status: dict[str, list[dict[str, Any]]] = {}
+
+        # Start with in-memory cache data
         for retailer, accounts in self._cache.sessions.items():
             status[retailer] = []
             for account_name, session in accounts.items():
@@ -304,6 +316,27 @@ class SessionPrewarmer:
                     "is_valid": not session.is_expired,
                     "cookies_count": len(session.cookies),
                 })
+
+        # Supplement with persisted account sessions from DB
+        # that may not yet be in the cache (e.g. after a restart)
+        if self._persistence is not None:
+            persisted = self._persistence.load_all_sessions()
+            for key, session_state in persisted.items():
+                # key is "retailer:username"
+                retailer, _, username = key.partition(":")
+                if retailer not in status:
+                    status[retailer] = []
+                # Avoid duplicates with cached sessions
+                existing = {a["account_name"] for a in status.get(retailer, [])}
+                if username not in existing:
+                    status[retailer].append({
+                        "account_name": username,
+                        "prewarmed_at": session_state.prewarmed_at,
+                        "expires_at": session_state.expires_at,
+                        "is_valid": session_state.is_valid,
+                        "cookies_count": len(session_state.cookies),
+                    })
+
         return status
 
     # ── Scheduler ───────────────────────────────────────────────────────────
@@ -322,8 +355,6 @@ class SessionPrewarmer:
         now = datetime.now(timezone.utc)
         drop_windows = getattr(self.config, "drop_windows", [])
         enabled_retailers = self.config.get_enabled_retailers()
-
-        tasks: list[tuple[PrewarmResult, asyncio.Task[None]]] = []
 
         for dw in drop_windows:
             if not dw.enabled:
@@ -469,7 +500,7 @@ class SessionPrewarmer:
 
             # Persist to DB if configured (MON-8: persist and reuse cookies)
             if self._persistence is not None:
-                self._persistence.save_session(retailer, session)
+                self._persistence.save_session(retailer, session, account_name=account_name)
                 self._log(
                     "INFO", "SESSION_PERSISTED",
                     retailer=retailer, account=account_name,

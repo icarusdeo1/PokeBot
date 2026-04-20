@@ -959,7 +959,7 @@
 
 ---
 
-**FRONTEND-T07** ⚠️ PARTIAL
+**FRONTEND-T07** ✅ DONE
 - **Title:** Implement Settings page (config form)
 - **Feature Area:** `dashboard/templates/index.html`
 - **Priority:** P0
@@ -1005,7 +1005,7 @@
 
 ---
 
-**FRONTEND-T10** ⚠️ PARTIAL
+**FRONTEND-T10** ✅ DONE
 - **Title:** Implement Multi-Account panel
 - **Feature Area:** `dashboard/templates/index.html`
 - **Priority:** P0
@@ -1015,8 +1015,8 @@
 - **Acceptance Criteria:**
   - [x] Accounts view with session status per retailer
   - [x] Add Account button (UI stub)
-  - [ ] Last prewarm time display (not yet wired to backend)
-  - [x] Enabled/disabled toggle (UI stub, not yet functional)
+  - [x] Last prewarm time display — exposed via new `GET /api/accounts` endpoint and `SessionPrewarmer.get_status()` (accounts keyed in new `account_sessions` table)
+  - [x] Enabled/disabled toggle — new `PATCH /api/accounts/{retailer}/{username}/toggle` endpoint + wired to Config
 
 ---
 

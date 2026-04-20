@@ -40,6 +40,7 @@ from src.dashboard.routes.dryrun import dryrun_route
 from src.dashboard.routes.health import health_route
 from src.dashboard.routes.daemon_restart import daemon_restart_route
 from src.dashboard.routes.adapters import adapters_list_route
+from src.dashboard.routes.accounts import accounts_list_route, accounts_toggle_route
 
 # ── Auth DB setup ──────────────────────────────────────────────────────────────
 _auth_db_path = Path(__file__).parent.parent.parent / "auth.db"
@@ -191,6 +192,17 @@ async def daemon_restart(_: Request) -> Any:
 @app.get("/api/adapters/", tags=["adapters"])
 async def adapters_list(_: Request) -> Any:
     return await adapters_list_route()
+
+
+
+@app.get("/api/accounts", tags=["accounts"])
+async def accounts_list(_: Request) -> Any:
+    return await accounts_list_route()
+
+
+@app.patch("/api/accounts/{retailer}/{username}/toggle", tags=["accounts"])
+async def accounts_toggle(request: Request, retailer: str, username: str) -> Any:
+    return await accounts_toggle_route(request, retailer, username)
 
 
 # ── SPA fallback (serve index.html for non-API routes) ────────────────────────
