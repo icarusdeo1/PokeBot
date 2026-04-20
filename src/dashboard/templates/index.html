@@ -609,7 +609,14 @@
         <button class="btn btn-primary btn-sm">+ Add Account</button>
       </div>
       <div class="panel">
-        <div class="panel-title">Session Status per Retailer</div>
+        <div class="panel-title">Session Status per Account</div>
+        <div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1fr 120px;gap:.5rem;padding:.5rem .75rem;background:var(--surface2);border-radius:8px 8px 0 0;font-size:.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.25rem">
+          <span>Retailer</span>
+          <span>Account</span>
+          <span>Last Prewarm</span>
+          <span>Session</span>
+          <span style="text-align:center">Enabled</span>
+        </div>
         <div id="accounts-list"></div>
       </div>
     </div>
@@ -1128,30 +1135,89 @@ async function toggleRetailer(name, enabled) {
 
 // ── Accounts ────────────────────────────────────────────────────────────────────
 async function loadAccounts() {
-  /** Load session status for accounts panel from /api/status and populate accounts-list. */
+  /** Load session status for accounts panel from /api/accounts. */
   try {
-    const res = await api('/api/status');
+    const res = await api('/api/accounts');
     if (!res.ok) return;
     const data = await res.json();
-    const sh = data.session_health || {};
+    const retailers = data.retailers || {};
     const el = document.getElementById('accounts-list');
     if (!el) return;
-    const entries = Object.entries(sh);
-    if (!entries.length) {
-      el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;text-align:center;">No sessions tracked yet.</div>';
+    const allEmpty = Object.keys(retailers).length === 0 ||
+      Object.values(retailers).every(acctList => !acctList || acctList.length === 0);
+    if (allEmpty) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;text-align:center;font-size:.875rem">No accounts configured yet. Add accounts in config.yaml to get started.</div>';
       return;
     }
-    el.innerHTML = entries.map(([retailer, status]) => {
-      const dotColor = status === 'green' ? 'var(--success)' : status === 'yellow' ? 'var(--warning)' : 'var(--danger)';
-      const statusLabel = status === 'green' ? 'Healthy' : status === 'yellow' ? 'Expiring Soon' : 'Expired/Invalid';
-      return `<div style="display:flex;align-items:center;gap:.75rem;padding:.875rem 1rem;background:var(--surface2);border-radius:8px;margin-bottom:.5rem;">
-        <span style="width:12px;height:12px;border-radius:50%;background:${dotColor};flex-shrink:0;"></span>
-        <strong style="flex:1;">${retailer.charAt(0).toUpperCase() + retailer.slice(1)}</strong>
-        <span style="color:var(--text-muted);font-size:.875rem;">${statusLabel}</span>
-      </div>`;
-    }).join('');
+    el.innerHTML = Object.entries(retailers).flatMap(([retailer, accounts]) =>
+      (accounts || []).map(acct => {
+        const sess = acct.session || {};
+        const prewarmAt = sess.prewarmed_at
+          ? formatRelativeTime(sess.prewarmed_at)
+          : '<span style="color:var(--text-muted)">Not prewarmed</span>';
+        const isValid = sess.is_valid !== false;
+        const expired = !!(sess.expires_at && new Date(sess.expires_at) < new Date());
+        const dotColor = expired ? 'var(--danger)' : isValid ? 'var(--success)' : 'var(--danger)';
+        const statusLabel = expired ? 'Expired' : isValid ? 'Healthy' : 'Invalid';
+        const encUser = btoa(acct.username).replace(/[^a-zA-Z0-9]/g, '');
+        const toggleId = `toggle-${retailer}-${encUser}`;
+        return `<div style="display:grid;grid-template-columns:2fr 2fr 1.5fr 1fr 120px;gap:.5rem;align-items:center;padding:.75rem 1rem;background:var(--surface2);border-radius:8px;margin-bottom:.35rem;">
+          <span style="font-weight:600;text-transform:capitalize">${retailer}</span>
+          <span style="font-size:.875rem;word-break:break-all">${acct.username}</span>
+          <span style="font-size:.875rem;color:var(--text-muted)">${prewarmAt}</span>
+          <span style="display:flex;align-items:center;gap:.4rem;font-size:.875rem">
+            <span style="width:10px;height:10px;border-radius:50%;background:${dotColor};flex-shrink:0;"></span>
+            ${statusLabel}
+          </span>
+          <span style="text-align:center">
+            <label class="switch" style="vertical-align:middle">
+              <input type="checkbox" id="${toggleId}" ${acct.enabled ? 'checked' : ''}
+                onchange="toggleAccount('${retailer}','${acct.username}', this.checked)">
+              <span class="slider"></span>
+            </label>
+          </span>
+        </div>`;
+      })
+    ).join('');
   } catch (err) {
     console.error('Failed to load accounts:', err);
+  }
+}
+
+function formatRelativeTime(isoString) {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+async function toggleAccount(retailer, username, currentEnabled) {
+  try {
+    const res = await api(`/api/accounts/${retailer}/${encodeURIComponent(username)}/toggle`, {
+      method: 'PATCH',
+    });
+    if (res.ok) {
+      loadAccounts();
+    } else {
+      const encUser = btoa(username).replace(/[^a-zA-Z0-9]/g, '');
+      const toggleId = `toggle-${retailer}-${encUser}`;
+      const toggle = document.getElementById(toggleId);
+      if (toggle) toggle.checked = !currentEnabled;
+      const errBody = await res.json().catch(() => ({}));
+      alert(`Failed to toggle account: ${errBody.detail || res.status}`);
+    }
+  } catch (err) {
+    console.error('toggleAccount error:', err);
+    const encUser = btoa(username).replace(/[^a-zA-Z0-9]/g, '');
+    const toggleId = `toggle-${retailer}-${encUser}`;
+    const toggle = document.getElementById(toggleId);
+    if (toggle) toggle.checked = !currentEnabled;
   }
 }
 
