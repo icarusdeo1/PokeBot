@@ -245,7 +245,11 @@ class CrashRecovery:
         # Register signal handlers for graceful crash detection
         self._prev_sigterm = signal.signal(signal.SIGTERM, self._signal_handler)
         self._prev_sigint = signal.signal(signal.SIGINT, self._signal_handler)
-        self._prev_sighup = signal.signal(signal.SIGHUP, self._signal_handler)
+        # SIGHUP is Unix-only — skip on Windows
+        try:
+            self._prev_sighup = signal.signal(signal.SIGHUP, self._signal_handler)
+        except AttributeError:
+            self._prev_sighup = None
 
         # Register unhandled exception hook
         self._original_excepthook = sys.excepthook
