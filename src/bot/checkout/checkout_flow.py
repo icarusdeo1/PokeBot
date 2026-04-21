@@ -187,6 +187,19 @@ class CheckoutFlow:
                     error=f"Session invalid and re-authentication failed: {reauth_result.error}",
                 )
 
+        # Verify payment info is configured (lazy check at checkout time)
+        if self._payment_autofill is None or not self._payment_autofill.payment_info.card_number or not self._payment_autofill.payment_info.cvv:
+            self.logger.error(
+                "CHECKOUT_PAYMENT_NOT_CONFIGURED",
+                item=item_name,
+                retailer=adapter.name,
+            )
+            return CheckoutResult(
+                success=False,
+                stage=CheckoutStage.PRE_CHECK.value,
+                error="Payment info not configured — add card details in dashboard",
+            )
+
         self.logger.info(
             "CHECKOUT_STARTED",
             item=item_name,

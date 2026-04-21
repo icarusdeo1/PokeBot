@@ -567,6 +567,19 @@
             <div class="config-field"><label>Email</label><input type="email" id="cfg-ship-email"></div>
           </div>
           <div class="panel">
+            <div class="settings-section-title">Payment</div>
+            <div class="config-field"><label>Card Number</label><input type="text" id="cfg-pay-card" placeholder="1234..." autocomplete="cc-number"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;">
+              <div class="config-field"><label>Month</label><input type="text" id="cfg-pay-exp-m" placeholder="MM" maxlength="2"></div>
+              <div class="config-field"><label>Year</label><input type="text" id="cfg-pay-exp-y" placeholder="YYYY" maxlength="4"></div>
+              <div class="config-field"><label>CVV</label><input type="password" id="cfg-pay-cvv" placeholder="123" maxlength="4"></div>
+            </div>
+            <div class="config-field" style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem;">
+              <input type="checkbox" id="cfg-pay-billing-same" checked>
+              <label style="margin:0;font-size:.8rem;color:var(--text-muted);">Billing address same as shipping</label>
+            </div>
+          </div>
+          <div class="panel">
             <div class="settings-section-title">Monitored Items</div>
             <div id="settings-items"></div>
             <button class="btn btn-secondary btn-sm" style="margin-top:.75rem;" onclick="addItem()">+ Add Item</button>
@@ -978,6 +991,13 @@ async function loadSettings() {
     document.getElementById('cfg-ship-zip').value = ship.zip_code || '';
     document.getElementById('cfg-ship-phone').value = ship.phone || '';
     document.getElementById('cfg-ship-email').value = ship.email || '';
+    // Payment fields (card number masked by backend, CVV always returns '***')
+    const pay = cfg.payment || {};
+    document.getElementById('cfg-pay-card').value = pay.card_number || '';
+    document.getElementById('cfg-pay-exp-m').value = pay.expiry_month || '';
+    document.getElementById('cfg-pay-exp-y').value = pay.expiry_year || '';
+    document.getElementById('cfg-pay-cvv').value = '';  // CVV is never echoed back
+    document.getElementById('cfg-pay-billing-same').checked = pay.billing_address_same_as_shipping !== false;
     // Retailer accounts
     renderRetailerAccounts(cfg.retailers || {});
     renderItems(cfg.items || []);
@@ -1110,6 +1130,13 @@ async function saveSettings() {
       zip_code: document.getElementById('cfg-ship-zip').value,
       phone: document.getElementById('cfg-ship-phone').value,
       email: document.getElementById('cfg-ship-email').value,
+    },
+    payment: {
+      card_number: document.getElementById('cfg-pay-card').value,
+      expiry_month: document.getElementById('cfg-pay-exp-m').value,
+      expiry_year: document.getElementById('cfg-pay-exp-y').value,
+      cvv: document.getElementById('cfg-pay-cvv').value,
+      billing_address_same_as_shipping: document.getElementById('cfg-pay-billing-same').checked,
     },
   };
   try {

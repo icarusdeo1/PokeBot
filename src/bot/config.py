@@ -358,13 +358,11 @@ class Config:
             billing_state=raw_payment.get("billing_state", "").strip(),
             billing_zip_code=raw_payment.get("billing_zip_code", "").strip(),
         )
-        if not self.payment.card_number:
-            errors.append("payment.card_number is required (or set POKEDROP_CC_NUMBER)")
-        elif not _is_valid_card_number(self.payment.card_number):
+        # Lazy validation: card_number and cvv are checked at checkout time, not startup.
+        # Format validation only (if provided).
+        if self.payment.card_number and not _is_valid_card_number(self.payment.card_number):
             errors.append("payment.card_number must be 13-19 digits")
-        if not self.payment.cvv:
-            errors.append("payment.cvv is required (or set POKEDROP_CC_CVV)")
-        elif not re.match(r"^\d{3,4}$", self.payment.cvv):
+        if self.payment.cvv and not re.match(r"^\d{3,4}$", self.payment.cvv):
             errors.append("payment.cvv must be 3 or 4 digits")
 
         raw_captcha = self._raw.get("captcha", {})
