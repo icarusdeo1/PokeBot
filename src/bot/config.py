@@ -359,10 +359,14 @@ class Config:
             billing_zip_code=raw_payment.get("billing_zip_code", "").strip(),
         )
         # Lazy validation: card_number and cvv are checked at checkout time, not startup.
-        # Format validation only (if provided).
-        if self.payment.card_number and not _is_valid_card_number(self.payment.card_number):
+        # Format validation only runs for non-empty, non-placeholder values.
+        _PLACEHOLDER_CARD_VALUES = {"", "REQUIRED", "your_card_number", "CARD_NUMBER"}
+        _PLACEHOLDER_CVV_VALUES = {"", "REQUIRED", "your_cvv", "CVV", "123", "1234"}
+        card_val = self.payment.card_number.strip()
+        cvv_val = self.payment.cvv.strip()
+        if card_val and card_val not in _PLACEHOLDER_CARD_VALUES and not _is_valid_card_number(card_val):
             errors.append("payment.card_number must be 13-19 digits")
-        if self.payment.cvv and not re.match(r"^\d{3,4}$", self.payment.cvv):
+        if cvv_val and cvv_val not in _PLACEHOLDER_CVV_VALUES and not re.match(r"^\d{3,4}$", cvv_val):
             errors.append("payment.cvv must be 3 or 4 digits")
 
         raw_captcha = self._raw.get("captcha", {})

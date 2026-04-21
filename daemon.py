@@ -414,9 +414,16 @@ def main() -> None:
     args = _parse_args()
     config_path = Path(args.config)
 
+    # Auto-create config.yaml from config.example.yaml if missing
     if not config_path.exists():
-        print(f"ERROR: config file not found: {config_path}", file=sys.stderr)
-        sys.exit(1)
+        example_path = Path("config.example.yaml")
+        if example_path.exists():
+            import shutil
+            shutil.copy(example_path, config_path)
+            print(f"Created {config_path} from config.example.yaml", file=sys.stderr)
+        else:
+            print(f"ERROR: config file not found: {config_path}", file=sys.stderr)
+            sys.exit(1)
 
     # Initialize logger (singleton)
     log_dir = Path("logs")
